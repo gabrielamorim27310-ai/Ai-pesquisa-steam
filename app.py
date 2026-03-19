@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests as http_requests
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 
-from agent import search_academic_papers, format_citation, SYSTEM_PROMPT
+from agent import search_academic_papers, search_wikipedia, format_citation, SYSTEM_PROMPT
 
 app = Flask(__name__)
 
@@ -49,32 +49,42 @@ def _deduplicate(papers: list[dict]) -> list[dict]:
     return result
 
 
-def _parallel_search(query_pt: str, query_en: str) -> list[dict]:
-    """Busca em paralelo em português e inglês e combina os resultados."""
-    results_pt: list = []
-    results_en: list = []
+def _parallel_search(query_pt: str, query_en: str) -> tuple[list[dict], list[dict]]:
+    """
+    Busca em paralelo em 4 fontes confiáveis:
+      - Semantic Scholar (PT query + EN query)
+      - Wikipedia PT
+      - Wikipedia EN
+    Retorna (papers, web_sources) já deduplicados.
+    """
+    buckets: dict = {"papers_pt": [], "papers_en": [], "wiki_pt": [], "wiki_en": []}
 
-    def search_pt():
-        return search_academic_papers(query=query_pt, max_results=5)
+    tasks = {
+        "papers_pt": lambda: search_academic_papers(query=query_pt, max_results=5),
+        "papers_en": lambda: search_academic_papers(query=query_en, max_results=5),
+        "wiki_pt":   lambda: search_wikipedia(query=query_pt, lang="pt", max_results=3),
+        "wiki_en":   lambda: search_wikipedia(query=query_en, lang="en", max_results=3),
+    }
 
-    def search_en():
-        return search_academic_papers(query=query_en, max_results=5)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(fn): key for key, fn in tasks.items()}
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                res = fut.result()
+                if res and (not isinstance(res[0], dict) or "error" not in res[0]):
+                    buckets[key] = res
+            except Exception:
+                pass
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        fut_pt = executor.submit(search_pt)
-        fut_en = executor.submit(search_en)
-        for fut in as_completed([fut_pt, fut_en]):
-            res = fut.result()
-            if res and "error" not in res[0]:
-                if fut is fut_pt:
-                    results_pt = res
-                else:
-                    results_en = res
+    papers = _deduplicate(buckets["papers_pt"] + buckets["papers_en"])
+    papers.sort(key=lambda x: x.get("citations", 0), reverse=True)
+    papers = papers[:6]
 
-    combined = _deduplicate(results_pt + results_en)
-    # Ordena por citações decrescentes e limita a 6
-    combined.sort(key=lambda x: x.get("citations", 0), reverse=True)
-    return combined[:6]
+    web = _deduplicate(buckets["wiki_pt"] + buckets["wiki_en"])
+    web = web[:4]
+
+    return papers, web
 
 
 def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
@@ -94,51 +104,56 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
         emit("error", {"message": "GROQ_API_KEY não configurada no servidor."})
         return events
 
-    emit("status", {"text": "Buscando artigos em português e inglês..."})
+    emit("status", {"text": "Buscando em fontes confiáveis (artigos + Wikipedia)..."})
 
-    # ── Passo 1: Busca paralela PT + EN ───────────────────────────
+    # ── Passo 1: Busca paralela (Semantic Scholar + Wikipedia PT/EN) ──
     query_en = user_message + " research"
-    emit("tool", {"name": "search", "label": f'Buscando (PT): "{user_message}"'})
-    emit("tool", {"name": "search", "label": f'Buscando (EN): "{query_en}"'})
-    papers = _parallel_search(user_message, query_en)
+    emit("tool", {"name": "search", "label": f'Semantic Scholar (PT): "{user_message}"'})
+    emit("tool", {"name": "search", "label": f'Semantic Scholar (EN): "{query_en}"'})
+    emit("tool", {"name": "search", "label": f'Wikipedia PT + EN: "{user_message}"'})
+    papers, web_sources = _parallel_search(user_message, query_en)
+
+    all_sources = papers + web_sources
 
     # ── Passo 2: Citações em Python ───────────────────────────────
-    if papers:
-        emit("status", {"text": f"Formatando {len(papers)} citações ({citation_style})..."})
-        citations = []
-        for p in papers:
+    citations = []
+    if all_sources:
+        emit("status", {"text": f"Formatando {len(all_sources)} citações ({citation_style})..."})
+        for s in all_sources:
             emit("tool", {
                 "name": "citation",
-                "label": f"Formatando {citation_style}: {p.get('title', '')[:50]}…",
+                "label": f"Formatando {citation_style}: {s.get('title', '')[:50]}…",
             })
-            citations.append(format_citation(p, style=citation_style))
-    else:
-        citations = []
+            citations.append(format_citation(s, style=citation_style))
 
     # ── Passo 3: Groq gera o resumo ──────────────────────────────
     emit("status", {"text": "Gerando análise com Groq Llama 3.3 70B..."})
 
-    papers_json = json.dumps(papers, ensure_ascii=False, indent=2) if papers else "[]"
     citations_text = "\n\n".join(f"{i+1}. {c}" for i, c in enumerate(citations))
 
-    if papers:
-        sources_block = f"""Artigos encontrados (fontes confiáveis — Semantic Scholar):
-{papers_json}
-
-Citações já formatadas ({citation_style}):
-{citations_text}"""
+    if all_sources:
+        papers_block = (
+            f"Artigos científicos (Semantic Scholar):\n{json.dumps(papers, ensure_ascii=False, indent=2)}"
+            if papers else "Nenhum artigo científico encontrado."
+        )
+        web_block = (
+            f"Fontes enciclopédicas (Wikipedia PT/EN):\n{json.dumps(web_sources, ensure_ascii=False, indent=2)}"
+            if web_sources else "Nenhuma fonte Wikipedia encontrada."
+        )
+        sources_block = f"{papers_block}\n\n{web_block}\n\nCitações já formatadas ({citation_style}):\n{citations_text}"
         instruction = (
             "Escreva uma resposta estruturada em português brasileiro com:\n"
             "1. Breve introdução sobre o tema (2-3 frases)\n"
-            "2. Para cada artigo: título em negrito, autores, ano, resumo curto e relevância\n"
+            "2. Para cada fonte: título em negrito, origem (artigo/Wikipedia), "
+            "autores/instituição, ano, resumo curto e relevância\n"
             "3. Seção \"Referências\" com as citações acima (copie exatamente)"
         )
     else:
-        sources_block = "Nenhum artigo foi encontrado nas bases de dados para este tema."
+        sources_block = "Nenhuma fonte foi encontrada (Semantic Scholar nem Wikipedia)."
         instruction = (
-            "Mesmo sem artigos nas bases, escreva em português brasileiro:\n"
+            "Mesmo sem fontes externas, escreva em português brasileiro:\n"
             "1. Uma explicação geral sobre o tema com base no seu conhecimento\n"
-            "2. Indique que não foram encontrados artigos indexados para este tema específico\n"
+            "2. Indique que não foram encontradas fontes indexadas para este tema\n"
             "3. Sugira termos de busca alternativos que o usuário pode tentar"
         )
 

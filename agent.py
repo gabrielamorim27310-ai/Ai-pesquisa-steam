@@ -1,8 +1,8 @@
 """
-Agente de Pesquisa Acadêmica — Semantic Scholar + Claude Opus 4.6
+Agente de Pesquisa Acadêmica — Semantic Scholar + Wikipedia + Claude Opus 4.6
 
-Busca artigos científicos e retorna citações formatadas (ABNT, APA ou MLA).
-Usa a Semantic Scholar API (gratuita, sem necessidade de chave).
+Busca em fontes confiáveis (artigos científicos e Wikipedia PT/EN) e retorna
+citações formatadas (ABNT, APA, MLA ou STEAM).
 """
 
 import os
@@ -83,14 +83,95 @@ def search_academic_papers(query: str, max_results: int = 5, year_from: int = No
     return papers if papers else [{"error": "Nenhum artigo encontrado para esta busca."}]
 
 
+# ─────────────────────────────────────────────
+# Busca Wikipedia (PT e EN)
+# ─────────────────────────────────────────────
+
+def search_wikipedia(query: str, lang: str = "pt", max_results: int = 3) -> list[dict]:
+    """
+    Busca na Wikipedia (qualquer idioma) e retorna lista de fontes confiáveis.
+    Usa a API pública da Wikimedia — gratuita, sem chave.
+    """
+    base = f"https://{lang}.wikipedia.org/w/api.php"
+    headers = {"User-Agent": "AcademicResearchAgent/1.0"}
+
+    # 1. Busca pelos títulos mais relevantes
+    try:
+        search_resp = requests.get(base, params={
+            "action": "query",
+            "list": "search",
+            "srsearch": query,
+            "srlimit": max_results,
+            "format": "json",
+        }, headers=headers, timeout=10)
+        search_resp.raise_for_status()
+        hits = search_resp.json().get("query", {}).get("search", [])
+    except Exception:
+        return []
+
+    if not hits:
+        return []
+
+    titles = [h["title"] for h in hits]
+
+    # 2. Extrai resumo introdutório de cada página
+    try:
+        extract_resp = requests.get(base, params={
+            "action": "query",
+            "prop": "extracts|info",
+            "exintro": True,
+            "exsentences": 4,
+            "inprop": "url",
+            "titles": "|".join(titles),
+            "format": "json",
+            "redirects": 1,
+        }, headers=headers, timeout=10)
+        extract_resp.raise_for_status()
+        pages = extract_resp.json().get("query", {}).get("pages", {})
+    except Exception:
+        return []
+
+    lang_label = "Wikipédia" if lang == "pt" else "Wikipedia"
+    sources = []
+    for page in pages.values():
+        title = page.get("title", "")
+        url = page.get("fullurl", f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}")
+        raw_extract = page.get("extract", "")
+        # Remove tags HTML simples do extrato
+        import re
+        summary = re.sub(r"<[^>]+>", "", raw_extract).strip()
+        if not summary:
+            continue
+        sources.append({
+            "source_type": "wikipedia",
+            "title": title,
+            "authors": [],
+            "year": "",
+            "journal": lang_label,
+            "abstract": summary[:600],
+            "url": url,
+            "citations": 0,
+            "doi": "",
+            "lang": lang,
+        })
+
+    return sources
+
+
 def format_citation(article: dict, style: str = "ABNT") -> str:
-    """Formata um artigo no estilo ABNT, APA ou MLA."""
+    """Formata uma fonte (artigo, Wikipedia) no estilo ABNT, APA, MLA ou STEAM."""
     authors: list = article.get("authors", [])
     title: str = article.get("title", "")
     year = str(article.get("year", "s.d."))
     journal: str = article.get("journal", "")
     doi: str = article.get("doi", "")
     url: str = article.get("url", "")
+    source_type: str = article.get("source_type", "paper")
+
+    # Para fontes Wikipedia sem autores, usa o nome do portal como autor institucional
+    if source_type == "wikipedia" and not authors:
+        authors = [journal or "Wikipédia"]
+        year = year or _today().split()[-1]  # ano atual
 
     style = style.upper().strip()
 
@@ -309,24 +390,27 @@ def execute_tool(name: str, inputs: dict) -> str:
 # Sistema prompt do agente
 # ─────────────────────────────────────────────
 
-SYSTEM_PROMPT = """Você é um assistente especializado em pesquisa acadêmica.
-Ajuda pesquisadores, estudantes e profissionais a encontrar os melhores artigos
-científicos e gera referências bibliográficas no formato correto.
+SYSTEM_PROMPT = """Você é um assistente de pesquisa que busca informações em fontes confiáveis.
+Ajuda estudantes, pesquisadores e profissionais a encontrar referências de qualidade
+e apresenta o conteúdo de forma clara e estruturada.
+
+Fontes utilizadas:
+- Semantic Scholar: base com +200 milhões de artigos científicos revisados por pares
+- Wikipedia PT e EN: enciclopédia colaborativa com conteúdo verificado
 
 Fluxo de resposta:
 1. Analise a solicitação e identifique os termos-chave
-2. Os artigos já foram buscados em português E inglês em paralelo (Semantic Scholar)
-3. Selecione os mais relevantes dos resultados combinados
-4. Use format_citation para formatar cada artigo selecionado
-5. Apresente uma resposta estruturada:
-   - Breve introdução sobre o tema
-   - Para cada artigo: título em negrito, autores, ano, resumo em português, relevância
+2. As fontes já foram buscadas em português E inglês em paralelo
+3. Selecione as mais relevantes (artigos e/ou Wikipedia)
+4. Apresente uma resposta estruturada:
+   - Breve introdução sobre o tema (2-3 frases)
+   - Para cada fonte: título em negrito, origem (artigo científico / Wikipedia), resumo e relevância
    - Seção "Referências" com as citações formatadas
 
 Regras importantes:
-- SEMPRE forneça uma resposta, mesmo que não haja artigos indexados — use seu conhecimento geral
-- Os artigos vêm de fontes confiáveis (Semantic Scholar, base com +200 milhões de artigos)
-- Aceite resultados em qualquer idioma (português, inglês, espanhol etc.) e resuma em português
+- SEMPRE forneça uma resposta — se não houver fontes, use seu conhecimento geral
+- Aceite fontes em qualquer idioma e resuma em português brasileiro
+- Indique claramente a origem de cada fonte (artigo científico vs. Wikipedia)
 - Se o usuário não especificar estilo, use ABNT
 - Estilos aceitos: ABNT, APA, MLA, STEAM
 - No formato STEAM:
