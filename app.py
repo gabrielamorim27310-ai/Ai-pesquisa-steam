@@ -1,9 +1,12 @@
 """
 Servidor web para o Agente de Pesquisa Acadêmica.
 
-- Local:  usa SSE (Server-Sent Events) para streaming em tempo real.
-- Vercel: usa endpoint síncrono /pesquisar-sync (serverless não suporta SSE).
-  O frontend detecta automaticamente o ambiente.
+Arquitetura para Vercel (limite de 10s):
+  1. Python busca artigos diretamente via Semantic Scholar (rápido, ~1s)
+  2. Python formata as citações localmente (instantâneo)
+  3. Claude Haiku gera apenas o resumo em texto (~2-3s, uma única chamada)
+
+Total estimado: 3-5 segundos — dentro do limite de 10s do Vercel Hobby.
 """
 
 import os
@@ -13,7 +16,7 @@ import threading
 import anthropic
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 
-from agent import execute_tool, TOOLS, SYSTEM_PROMPT
+from agent import search_academic_papers, format_citation, SYSTEM_PROMPT
 
 app = Flask(__name__)
 
@@ -28,13 +31,15 @@ def index():
 
 
 # ─────────────────────────────────────────────
-# Lógica central do agente (compartilhada)
+# Lógica central — pipeline rápido
 # ─────────────────────────────────────────────
 
-def run_agent_collecting_events(user_message: str) -> list[dict]:
+def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
     """
-    Executa o agente e coleta todos os eventos numa lista.
-    Usado pelo endpoint síncrono e pelo SSE.
+    Pipeline de pesquisa otimizado para Vercel (< 10s):
+      1. Busca Semantic Scholar diretamente
+      2. Formata citações em Python
+      3. Claude Haiku gera o resumo (1 chamada)
     """
     events: list[dict] = []
 
@@ -46,76 +51,86 @@ def run_agent_collecting_events(user_message: str) -> list[dict]:
         emit("error", {"message": "ANTHROPIC_API_KEY não configurada no servidor."})
         return events
 
-    client = anthropic.Anthropic(api_key=api_key)
-    messages = [{"role": "user", "content": user_message}]
+    emit("status", {"text": "Buscando artigos científicos..."})
 
-    emit("status", {"text": "Analisando sua pesquisa..."})
+    # ── Passo 1: Busca Semantic Scholar ──────────────────────────
+    emit("tool", {"name": "search", "label": f'Buscando: "{user_message}"'})
+    papers = search_academic_papers(query=user_message, max_results=5)
+
+    if papers and "error" in papers[0]:
+        # Segunda tentativa em inglês se a primeira falhar
+        emit("tool", {"name": "search", "label": f'Buscando em inglês: "{user_message}"'})
+        papers = search_academic_papers(query=user_message + " research", max_results=5)
+
+    if not papers or "error" in papers[0]:
+        emit("error", {"message": papers[0].get("error", "Nenhum artigo encontrado.")})
+        return events
+
+    # ── Passo 2: Formatar citações localmente ────────────────────
+    emit("status", {"text": f"Formatando {len(papers)} citações ({citation_style})..."})
+    citations = []
+    for p in papers:
+        emit("tool", {
+            "name": "citation",
+            "label": f"Formatando {citation_style}: {p.get('title', '')[:50]}…",
+        })
+        citations.append(format_citation(p, style=citation_style))
+
+    # ── Passo 3: Claude Haiku gera o resumo ──────────────────────
+    emit("status", {"text": "Gerando análise dos artigos..."})
+
+    papers_json = json.dumps(papers, ensure_ascii=False, indent=2)
+    citations_text = "\n\n".join(
+        f"{i+1}. {c}" for i, c in enumerate(citations)
+    )
+
+    prompt = f"""O usuário pesquisou: "{user_message}"
+
+Artigos encontrados (JSON):
+{papers_json}
+
+Citações já formatadas ({citation_style}):
+{citations_text}
+
+Com base nos artigos acima, escreva uma resposta estruturada em português brasileiro com:
+1. Breve introdução sobre o tema (2-3 frases)
+2. Para cada artigo: título em negrito, autores, ano, resumo curto e relevância para o tema
+3. Seção "Referências" com as citações já formatadas acima (copie exatamente)
+
+Seja direto e objetivo."""
 
     try:
-        while True:
-            response = client.messages.create(
-                model="claude-opus-4-6",
-                max_tokens=8192,
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
-                messages=messages,
-            )
-
-            messages.append({"role": "assistant", "content": response.content})
-
-            if response.stop_reason == "end_turn":
-                for block in response.content:
-                    if block.type == "text":
-                        emit("result", {"text": block.text})
-                break
-
-            if response.stop_reason == "tool_use":
-                tool_results = []
-                for block in response.content:
-                    if block.type == "tool_use":
-                        tool_name = block.name
-                        tool_input = block.input
-
-                        if tool_name == "search_academic_papers":
-                            emit("tool", {
-                                "name": "search",
-                                "label": f"Buscando: \"{tool_input.get('query', '')}\"",
-                            })
-                        elif tool_name == "format_citation":
-                            title = tool_input.get("article", {}).get("title", "")
-                            style = tool_input.get("style", "ABNT")
-                            emit("tool", {
-                                "name": "citation",
-                                "label": f"Formatando citação {style}: {title[:50]}…",
-                            })
-
-                        result = execute_tool(tool_name, tool_input)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        })
-
-                messages.append({"role": "user", "content": tool_results})
-
-            else:
-                for block in response.content:
-                    if block.type == "text":
-                        emit("result", {"text": block.text})
-                break
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4096,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result_text = response.content[0].text if response.content else ""
+        emit("result", {"text": result_text})
 
     except anthropic.AuthenticationError:
         emit("error", {"message": "Chave de API inválida. Verifique ANTHROPIC_API_KEY."})
     except anthropic.RateLimitError:
         emit("error", {"message": "Limite de requisições atingido. Aguarde alguns segundos."})
     except anthropic.APIConnectionError as e:
-        emit("error", {"message": f"Não foi possível conectar à API da Anthropic. Tente novamente. ({str(e)})"})
+        cause = str(e.__cause__) if e.__cause__ else str(e)
+        emit("error", {"message": f"Erro de conexão com a API Anthropic: {cause}"})
     except anthropic.APIStatusError as e:
         emit("error", {"message": f"Erro da API ({e.status_code}): {e.message}"})
     except Exception as e:
         emit("error", {"message": f"Erro interno: {type(e).__name__}: {str(e)}"})
 
     return events
+
+
+def _parse_style(query: str) -> tuple[str, str]:
+    """Extrai estilo de citação da query (ex: 'IA saúde APA' → ('IA saúde', 'APA'))."""
+    for style in ("ABNT", "APA", "MLA"):
+        if query.upper().endswith(f" {style}"):
+            return query[: -(len(style) + 1)].strip(), style
+    return query, "ABNT"
 
 
 # ─────────────────────────────────────────────
@@ -125,14 +140,15 @@ def run_agent_collecting_events(user_message: str) -> list[dict]:
 @app.route("/pesquisar", methods=["POST"])
 def pesquisar():
     data = request.get_json(silent=True) or {}
-    user_message = (data.get("query") or "").strip()
-    if not user_message:
+    raw_query = (data.get("query") or "").strip()
+    if not raw_query:
         return {"error": "Pesquisa vazia."}, 400
 
+    user_message, style = _parse_style(raw_query)
     q: queue.Queue = queue.Queue()
 
     def worker():
-        evts = run_agent_collecting_events(user_message)
+        evts = run_pipeline(user_message, style)
         for e in evts:
             payload = json.dumps(e["data"], ensure_ascii=False)
             q.put(f"event: {e['type']}\ndata: {payload}\n\n")
@@ -162,11 +178,12 @@ def pesquisar():
 @app.route("/pesquisar-sync", methods=["POST"])
 def pesquisar_sync():
     data = request.get_json(silent=True) or {}
-    user_message = (data.get("query") or "").strip()
-    if not user_message:
+    raw_query = (data.get("query") or "").strip()
+    if not raw_query:
         return jsonify({"error": "Pesquisa vazia."}), 400
 
-    events = run_agent_collecting_events(user_message)
+    user_message, style = _parse_style(raw_query)
+    events = run_pipeline(user_message, style)
     return jsonify({"events": events})
 
 
