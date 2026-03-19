@@ -1,19 +1,13 @@
 """
 Servidor web para o Agente de Pesquisa Acadêmica.
-
-Arquitetura para Vercel (limite de 10s):
-  1. Python busca artigos diretamente via Semantic Scholar (rápido, ~1s)
-  2. Python formata as citações localmente (instantâneo)
-  3. Claude Haiku gera apenas o resumo em texto (~2-3s, uma única chamada)
-
-Total estimado: 3-5 segundos — dentro do limite de 10s do Vercel Hobby.
+Usa Google Gemini 2.0 Flash (gratuito) para geração de texto.
 """
 
 import os
 import json
 import queue
 import threading
-import anthropic
+import google.generativeai as genai
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 
 from agent import search_academic_papers, format_citation, SYSTEM_PROMPT
@@ -31,42 +25,41 @@ def index():
 
 
 # ─────────────────────────────────────────────
-# Lógica central — pipeline rápido
+# Pipeline principal
 # ─────────────────────────────────────────────
 
 def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
     """
-    Pipeline de pesquisa otimizado para Vercel (< 10s):
-      1. Busca Semantic Scholar diretamente
-      2. Formata citações em Python
-      3. Claude Haiku gera o resumo (1 chamada)
+    Pipeline otimizado para Vercel (< 10s):
+      1. Busca Semantic Scholar diretamente (~1s)
+      2. Formata citações em Python (instantâneo)
+      3. Gemini 2.0 Flash gera o resumo (~1-2s, 1 chamada)
     """
     events: list[dict] = []
 
     def emit(event_type: str, data: dict):
         events.append({"type": event_type, "data": data})
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        emit("error", {"message": "ANTHROPIC_API_KEY não configurada no servidor."})
+        emit("error", {"message": "GEMINI_API_KEY não configurada no servidor."})
         return events
 
     emit("status", {"text": "Buscando artigos científicos..."})
 
-    # ── Passo 1: Busca Semantic Scholar ──────────────────────────
+    # ── Passo 1: Semantic Scholar ─────────────────────────────────
     emit("tool", {"name": "search", "label": f'Buscando: "{user_message}"'})
     papers = search_academic_papers(query=user_message, max_results=5)
 
     if papers and "error" in papers[0]:
-        # Segunda tentativa em inglês se a primeira falhar
-        emit("tool", {"name": "search", "label": f'Buscando em inglês: "{user_message}"'})
+        emit("tool", {"name": "search", "label": f'Tentando em inglês...'})
         papers = search_academic_papers(query=user_message + " research", max_results=5)
 
     if not papers or "error" in papers[0]:
         emit("error", {"message": papers[0].get("error", "Nenhum artigo encontrado.")})
         return events
 
-    # ── Passo 2: Formatar citações localmente ────────────────────
+    # ── Passo 2: Citações em Python ───────────────────────────────
     emit("status", {"text": f"Formatando {len(papers)} citações ({citation_style})..."})
     citations = []
     for p in papers:
@@ -76,57 +69,46 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
         })
         citations.append(format_citation(p, style=citation_style))
 
-    # ── Passo 3: Claude Haiku gera o resumo ──────────────────────
-    emit("status", {"text": "Gerando análise dos artigos..."})
+    # ── Passo 3: Gemini gera o resumo ────────────────────────────
+    emit("status", {"text": "Gerando análise com Gemini 2.0 Flash..."})
 
     papers_json = json.dumps(papers, ensure_ascii=False, indent=2)
-    citations_text = "\n\n".join(
-        f"{i+1}. {c}" for i, c in enumerate(citations)
-    )
+    citations_text = "\n\n".join(f"{i+1}. {c}" for i, c in enumerate(citations))
 
-    prompt = f"""O usuário pesquisou: "{user_message}"
+    prompt = f"""{SYSTEM_PROMPT}
 
-Artigos encontrados (JSON):
+O usuário pesquisou: "{user_message}"
+
+Artigos encontrados:
 {papers_json}
 
 Citações já formatadas ({citation_style}):
 {citations_text}
 
-Com base nos artigos acima, escreva uma resposta estruturada em português brasileiro com:
+Escreva uma resposta estruturada em português brasileiro com:
 1. Breve introdução sobre o tema (2-3 frases)
-2. Para cada artigo: título em negrito, autores, ano, resumo curto e relevância para o tema
-3. Seção "Referências" com as citações já formatadas acima (copie exatamente)
-
-Seja direto e objetivo."""
+2. Para cada artigo: título em negrito, autores, ano, resumo curto e relevância
+3. Seção "Referências" com as citações acima (copie exatamente)"""
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        result_text = response.content[0].text if response.content else ""
-        emit("result", {"text": result_text})
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        emit("result", {"text": response.text})
 
-    except anthropic.AuthenticationError:
-        emit("error", {"message": "Chave de API inválida. Verifique ANTHROPIC_API_KEY."})
-    except anthropic.RateLimitError:
-        emit("error", {"message": "Limite de requisições atingido. Aguarde alguns segundos."})
-    except anthropic.APIConnectionError as e:
-        cause = str(e.__cause__) if e.__cause__ else str(e)
-        emit("error", {"message": f"Erro de conexão com a API Anthropic: {cause}"})
-    except anthropic.APIStatusError as e:
-        emit("error", {"message": f"Erro da API ({e.status_code}): {e.message}"})
     except Exception as e:
-        emit("error", {"message": f"Erro interno: {type(e).__name__}: {str(e)}"})
+        msg = str(e)
+        if "API_KEY_INVALID" in msg or "API key" in msg.lower():
+            emit("error", {"message": "Chave Gemini inválida. Verifique GEMINI_API_KEY."})
+        elif "quota" in msg.lower() or "429" in msg:
+            emit("error", {"message": "Limite de requisições Gemini atingido. Aguarde."})
+        else:
+            emit("error", {"message": f"Erro Gemini: {msg}"})
 
     return events
 
 
 def _parse_style(query: str) -> tuple[str, str]:
-    """Extrai estilo de citação da query (ex: 'IA saúde APA' → ('IA saúde', 'APA'))."""
     for style in ("ABNT", "APA", "MLA"):
         if query.upper().endswith(f" {style}"):
             return query[: -(len(style) + 1)].strip(), style
@@ -134,7 +116,7 @@ def _parse_style(query: str) -> tuple[str, str]:
 
 
 # ─────────────────────────────────────────────
-# Endpoint SSE — para uso local (streaming real)
+# Endpoint SSE (local)
 # ─────────────────────────────────────────────
 
 @app.route("/pesquisar", methods=["POST"])
@@ -172,7 +154,7 @@ def pesquisar():
 
 
 # ─────────────────────────────────────────────
-# Endpoint síncrono — para Vercel (retorna JSON)
+# Endpoint síncrono (Vercel)
 # ─────────────────────────────────────────────
 
 @app.route("/pesquisar-sync", methods=["POST"])
