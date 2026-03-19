@@ -7,7 +7,7 @@ import os
 import json
 import queue
 import threading
-import google.generativeai as genai
+import requests as http_requests
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 
 from agent import search_academic_papers, format_citation, SYSTEM_PROMPT
@@ -91,19 +91,26 @@ Escreva uma resposta estruturada em português brasileiro com:
 3. Seção "Referências" com as citações acima (copie exatamente)"""
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        response = model.generate_content(prompt)
-        emit("result", {"text": response.text})
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.0-flash:generateContent?key={api_key}"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.7},
+        }
+        resp = http_requests.post(url, json=payload, timeout=20)
+        if resp.status_code != 200:
+            body = resp.json()
+            err = body.get("error", {}).get("message", resp.text)
+            emit("error", {"message": f"Erro Gemini ({resp.status_code}): {err}"})
+            return events
+        data = resp.json()
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        emit("result", {"text": text})
 
     except Exception as e:
-        msg = str(e)
-        if "API_KEY_INVALID" in msg or "API key" in msg.lower():
-            emit("error", {"message": "Chave Gemini inválida. Verifique GEMINI_API_KEY."})
-        elif "quota" in msg.lower() or "429" in msg:
-            emit("error", {"message": "Limite de requisições Gemini atingido. Aguarde."})
-        else:
-            emit("error", {"message": f"Erro Gemini: {msg}"})
+        emit("error", {"message": f"Erro Gemini: {str(e)}"})
 
     return events
 
