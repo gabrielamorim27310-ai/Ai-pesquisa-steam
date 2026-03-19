@@ -371,6 +371,9 @@
   let currentStyle = 'ABNT';
   let isLoading = false;
 
+  // Detecta se está no Vercel (serverless) ou local
+  const IS_VERCEL = !['localhost', '127.0.0.1'].includes(location.hostname);
+
   // ── Estilo de citação ──────────────────────
   function setStyle(btn) {
     document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('active'));
@@ -423,39 +426,52 @@
     const statusEl = addStatus('Iniciando pesquisa…');
 
     // SSE
-    const resp = await fetch('/pesquisar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
+    if (IS_VERCEL) {
+      // ── Vercel: endpoint síncrono ──────────────
+      const resp = await fetch('/pesquisar-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
 
-    if (!resp.ok) {
-      setLoading(false);
-      addError('Erro ao conectar ao servidor.');
-      return;
-    }
+      if (!resp.ok) { setLoading(false); addError('Erro ao conectar ao servidor.'); return; }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+      const { events } = await resp.json();
+      for (const evt of (events || [])) {
+        handleEvent(evt.type, JSON.stringify(evt.data), statusEl);
+        await new Promise(r => setTimeout(r, 120)); // animação suave
+      }
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
+    } else {
+      // ── Local: SSE com streaming ao vivo ──────
+      const resp = await fetch('/pesquisar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
 
-      buffer += decoder.decode(value, { stream: true });
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop(); // parte incompleta
+      if (!resp.ok) { setLoading(false); addError('Erro ao conectar ao servidor.'); return; }
 
-      for (const part of parts) {
-        if (!part.trim()) continue;
-        const lines = part.split('\n');
-        let evType = 'message', evData = '';
-        for (const line of lines) {
-          if (line.startsWith('event: ')) evType = line.slice(7).trim();
-          if (line.startsWith('data: '))  evData = line.slice(6).trim();
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop();
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const lines = part.split('\n');
+          let evType = 'message', evData = '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) evType = line.slice(7).trim();
+            if (line.startsWith('data: '))  evData = line.slice(6).trim();
+          }
+          handleEvent(evType, evData, statusEl);
         }
-        handleEvent(evType, evData, statusEl);
       }
     }
 
