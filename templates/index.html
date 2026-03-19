@@ -324,7 +324,7 @@
     <p>
       Digite um tema e o agente buscará os melhores artigos científicos,
       selecionará os mais relevantes e retornará as referências formatadas
-      no estilo escolhido (ABNT, APA ou MLA).
+      no estilo escolhido (ABNT, APA, MLA ou STEAM).
     </p>
     <div class="chips">
       <div class="chip" onclick="fillQuery(this)">Inteligência artificial na educação</div>
@@ -347,9 +347,10 @@
     <div class="input-group">
       <div class="style-row">
         <span style="font-size:12px;color:var(--muted);line-height:26px;margin-right:4px">Estilo:</span>
-        <button class="style-btn active" data-style="ABNT" onclick="setStyle(this)">ABNT</button>
-        <button class="style-btn" data-style="APA"  onclick="setStyle(this)">APA</button>
-        <button class="style-btn" data-style="MLA"  onclick="setStyle(this)">MLA</button>
+        <button class="style-btn active" data-style="ABNT"  onclick="setStyle(this)">ABNT</button>
+        <button class="style-btn" data-style="APA"   onclick="setStyle(this)">APA</button>
+        <button class="style-btn" data-style="MLA"   onclick="setStyle(this)">MLA</button>
+        <button class="style-btn" data-style="STEAM" onclick="setStyle(this)">STEAM</button>
       </div>
       <textarea
         id="query-input"

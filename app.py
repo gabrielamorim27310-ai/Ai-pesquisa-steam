@@ -120,7 +120,7 @@ Escreva uma resposta estruturada em português brasileiro com:
 
 
 def _parse_style(query: str) -> tuple[str, str]:
-    for style in ("ABNT", "APA", "MLA"):
+    for style in ("ABNT", "APA", "MLA", "STEAM"):
         if query.upper().endswith(f" {style}"):
             return query[: -(len(style) + 1)].strip(), style
     return query, "ABNT"

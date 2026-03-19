@@ -168,6 +168,31 @@ def format_citation(article: dict, style: str = "ABNT") -> str:
             cit += f" {url}."
         return cit
 
+    # ── STEAM ─────────────────────────────────────────
+    elif style == "STEAM":
+        steam_year = "SD" if str(year).lower() in ("s.d.", "sd", "") else str(year)
+
+        # Referência: todos os autores listados, separados por ponto e vírgula
+        # Formato: SOBRENOME, Iniciais.; SOBRENOME2, Iniciais2.
+        if not authors:
+            author_str = "AUTOR DESCONHECIDO"
+        else:
+            parts_list = []
+            for a in authors:
+                last, ini = _split_name(a)
+                parts_list.append(f"{last.upper()}, {ini}" if ini else last.upper())
+            author_str = "; ".join(parts_list)
+
+        cit = f"{author_str} {title}."
+        if journal:
+            cit += f" {journal},"
+        cit += f" {steam_year}."
+        if doi:
+            cit += f" DOI: {doi}."
+        elif url:
+            cit += f" Disponível em: <{url}>. Acesso em: {_today()}."
+        return cit
+
     return f"{title} ({year})"
 
 
@@ -223,7 +248,7 @@ TOOLS = [
         "name": "format_citation",
         "description": (
             "Formata os metadados de um artigo como referência bibliográfica "
-            "nos padrões ABNT (NBR 6023), APA (7ª ed.) ou MLA (9ª ed.)."
+            "nos padrões ABNT (NBR 6023), APA (7ª ed.), MLA (9ª ed.) ou STEAM."
         ),
         "input_schema": {
             "type": "object",
@@ -247,7 +272,7 @@ TOOLS = [
                 },
                 "style": {
                     "type": "string",
-                    "enum": ["ABNT", "APA", "MLA"],
+                    "enum": ["ABNT", "APA", "MLA", "STEAM"],
                     "description": "Estilo de citação (padrão: ABNT)",
                     "default": "ABNT",
                 },
@@ -302,7 +327,13 @@ Fluxo de resposta:
 
 Regras importantes:
 - Se o usuário não especificar estilo, use ABNT
-- Estilos aceitos: ABNT, APA, MLA
+- Estilos aceitos: ABNT, APA, MLA, STEAM
+- No formato STEAM:
+  * Citação no texto: (SOBRENOME, ano) — sobrenome em MAIÚSCULO
+  * Dois autores: (SOBRENOME1 & SOBRENOME2, ano)
+  * Três ou mais: (SOBRENOME et al., ano)
+  * Sem data: usar SD em vez de s.d.
+  * Referência: todos os autores listados com ponto e vírgula, formato SOBRENOME, Iniciais.
 - Se não encontrar resultados, tente buscar em inglês (mesmo para pedidos em português)
 - Priorize artigos dos últimos 10 anos, salvo se o usuário pedir obras clássicas
 - Responda sempre em português brasileiro
