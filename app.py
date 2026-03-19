@@ -1,6 +1,6 @@
 """
 Servidor web para o Agente de Pesquisa Acadêmica.
-Usa Google Gemini 2.0 Flash (gratuito) para geração de texto.
+Usa Groq (Llama 3.3 70B) para geração de texto - gratuito.
 """
 
 import os
@@ -33,16 +33,16 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
     Pipeline otimizado para Vercel (< 10s):
       1. Busca Semantic Scholar diretamente (~1s)
       2. Formata citações em Python (instantâneo)
-      3. Gemini 2.0 Flash gera o resumo (~1-2s, 1 chamada)
+      3. Groq Llama 3.3 70B gera o resumo (~1-2s, 1 chamada)
     """
     events: list[dict] = []
 
     def emit(event_type: str, data: dict):
         events.append({"type": event_type, "data": data})
 
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        emit("error", {"message": "GEMINI_API_KEY não configurada no servidor."})
+        emit("error", {"message": "GROQ_API_KEY não configurada no servidor."})
         return events
 
     emit("status", {"text": "Buscando artigos científicos..."})
@@ -69,15 +69,13 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
         })
         citations.append(format_citation(p, style=citation_style))
 
-    # ── Passo 3: Gemini gera o resumo ────────────────────────────
-    emit("status", {"text": "Gerando análise com Gemini 1.5 Flash..."})
+    # ── Passo 3: Groq gera o resumo ──────────────────────────────
+    emit("status", {"text": "Gerando análise com Groq Llama 3.3 70B..."})
 
     papers_json = json.dumps(papers, ensure_ascii=False, indent=2)
     citations_text = "\n\n".join(f"{i+1}. {c}" for i, c in enumerate(citations))
 
-    prompt = f"""{SYSTEM_PROMPT}
-
-O usuário pesquisou: "{user_message}"
+    user_prompt = f"""O usuário pesquisou: "{user_message}"
 
 Artigos encontrados:
 {papers_json}
@@ -91,26 +89,32 @@ Escreva uma resposta estruturada em português brasileiro com:
 3. Seção "Referências" com as citações acima (copie exatamente)"""
 
     try:
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-1.5-flash:generateContent?key={api_key}"
-        )
+        url = "https://api.groq.com/openai/v1/chat/completions"
         payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.7},
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.7,
         }
-        resp = http_requests.post(url, json=payload, timeout=20)
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        resp = http_requests.post(url, json=payload, headers=headers, timeout=20)
         if resp.status_code != 200:
             body = resp.json()
             err = body.get("error", {}).get("message", resp.text)
-            emit("error", {"message": f"Erro Gemini ({resp.status_code}): {err}"})
+            emit("error", {"message": f"Erro Groq ({resp.status_code}): {err}"})
             return events
         data = resp.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        text = data["choices"][0]["message"]["content"]
         emit("result", {"text": text})
 
     except Exception as e:
-        emit("error", {"message": f"Erro Gemini: {str(e)}"})
+        emit("error", {"message": f"Erro Groq: {str(e)}"})
 
     return events
 
