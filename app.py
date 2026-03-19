@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests as http_requests
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 
-from agent import search_academic_papers, search_wikipedia, format_citation, SYSTEM_PROMPT
+from agent import search_academic_papers, search_openalex, search_arxiv, format_citation, SYSTEM_PROMPT
 
 app = Flask(__name__)
 
@@ -49,21 +49,21 @@ def _deduplicate(papers: list[dict]) -> list[dict]:
     return result
 
 
-def _parallel_search(query_pt: str, query_en: str) -> tuple[list[dict], list[dict]]:
+def _parallel_search(query_pt: str, query_en: str) -> list[dict]:
     """
-    Busca em paralelo em 4 fontes confiáveis:
-      - Semantic Scholar (PT query + EN query)
-      - Wikipedia PT
-      - Wikipedia EN
-    Retorna (papers, web_sources) já deduplicados.
+    Busca em paralelo em 3 fontes acadêmicas confiáveis:
+      - Semantic Scholar  (query PT + EN)
+      - OpenAlex          (grandes universidades mundiais, query EN)
+      - arXiv / Cornell   (query EN)
+    Retorna lista única deduplicada e ordenada por citações.
     """
-    buckets: dict = {"papers_pt": [], "papers_en": [], "wiki_pt": [], "wiki_en": []}
+    buckets: dict = {"ss_pt": [], "ss_en": [], "openalex": [], "arxiv": []}
 
     tasks = {
-        "papers_pt": lambda: search_academic_papers(query=query_pt, max_results=5),
-        "papers_en": lambda: search_academic_papers(query=query_en, max_results=5),
-        "wiki_pt":   lambda: search_wikipedia(query=query_pt, lang="pt", max_results=3),
-        "wiki_en":   lambda: search_wikipedia(query=query_en, lang="en", max_results=3),
+        "ss_pt":    lambda: search_academic_papers(query=query_pt, max_results=5),
+        "ss_en":    lambda: search_academic_papers(query=query_en, max_results=5),
+        "openalex": lambda: search_openalex(query=query_en, max_results=5),
+        "arxiv":    lambda: search_arxiv(query=query_en, max_results=4),
     }
 
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -77,14 +77,11 @@ def _parallel_search(query_pt: str, query_en: str) -> tuple[list[dict], list[dic
             except Exception:
                 pass
 
-    papers = _deduplicate(buckets["papers_pt"] + buckets["papers_en"])
-    papers.sort(key=lambda x: x.get("citations", 0), reverse=True)
-    papers = papers[:6]
-
-    web = _deduplicate(buckets["wiki_pt"] + buckets["wiki_en"])
-    web = web[:4]
-
-    return papers, web
+    combined = _deduplicate(
+        buckets["ss_pt"] + buckets["ss_en"] + buckets["openalex"] + buckets["arxiv"]
+    )
+    combined.sort(key=lambda x: x.get("citations", 0), reverse=True)
+    return combined[:8]
 
 
 def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
@@ -104,25 +101,27 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
         emit("error", {"message": "GROQ_API_KEY não configurada no servidor."})
         return events
 
-    emit("status", {"text": "Buscando em fontes confiáveis (artigos + Wikipedia)..."})
+    emit("status", {"text": "Buscando em Semantic Scholar, OpenAlex e arXiv..."})
 
-    # ── Passo 1: Busca paralela (Semantic Scholar + Wikipedia PT/EN) ──
+    # ── Passo 1: Busca paralela (3 fontes acadêmicas) ─────────────
     query_en = user_message + " research"
-    emit("tool", {"name": "search", "label": f'Semantic Scholar (PT): "{user_message}"'})
-    emit("tool", {"name": "search", "label": f'Semantic Scholar (EN): "{query_en}"'})
-    emit("tool", {"name": "search", "label": f'Wikipedia PT + EN: "{user_message}"'})
-    papers, web_sources = _parallel_search(user_message, query_en)
-
-    all_sources = papers + web_sources
+    emit("tool", {"name": "search", "label": f'Semantic Scholar: "{user_message}"'})
+    emit("tool", {"name": "search", "label": f'OpenAlex (universidades): "{query_en}"'})
+    emit("tool", {"name": "search", "label": f'arXiv / Cornell University: "{query_en}"'})
+    sources = _parallel_search(user_message, query_en)
 
     # ── Passo 2: Citações em Python ───────────────────────────────
     citations = []
-    if all_sources:
-        emit("status", {"text": f"Formatando {len(all_sources)} citações ({citation_style})..."})
-        for s in all_sources:
+    if sources:
+        emit("status", {"text": f"Formatando {len(sources)} citações ({citation_style})..."})
+        for s in sources:
+            origin = {
+                "openalex": "OpenAlex",
+                "arxiv": "arXiv/Cornell",
+            }.get(s.get("source_type", ""), "Semantic Scholar")
             emit("tool", {
                 "name": "citation",
-                "label": f"Formatando {citation_style}: {s.get('title', '')[:50]}…",
+                "label": f"[{origin}] {s.get('title', '')[:45]}…",
             })
             citations.append(format_citation(s, style=citation_style))
 
@@ -131,37 +130,33 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
 
     citations_text = "\n\n".join(f"{i+1}. {c}" for i, c in enumerate(citations))
 
-    if all_sources:
-        papers_block = (
-            f"Artigos científicos (Semantic Scholar):\n{json.dumps(papers, ensure_ascii=False, indent=2)}"
-            if papers else "Nenhum artigo científico encontrado."
+    if sources:
+        sources_block = (
+            f"Fontes encontradas (Semantic Scholar + OpenAlex + arXiv):\n"
+            f"{json.dumps(sources, ensure_ascii=False, indent=2)}\n\n"
+            f"Citações já formatadas ({citation_style}):\n{citations_text}"
         )
-        web_block = (
-            f"Fontes enciclopédicas (Wikipedia PT/EN):\n{json.dumps(web_sources, ensure_ascii=False, indent=2)}"
-            if web_sources else "Nenhuma fonte Wikipedia encontrada."
-        )
-        sources_block = f"{papers_block}\n\n{web_block}\n\nCitações já formatadas ({citation_style}):\n{citations_text}"
         instruction = (
             "Escreva uma resposta estruturada em português brasileiro com:\n"
             "1. Breve introdução sobre o tema (2-3 frases)\n"
-            "2. Para cada fonte: título em negrito, origem (artigo/Wikipedia), "
-            "autores/instituição, ano, resumo curto e relevância\n"
+            "2. Para cada fonte: título em negrito, base de origem "
+            "(Semantic Scholar / OpenAlex / arXiv-Cornell), autores, ano, resumo curto e relevância\n"
             "3. Seção \"Referências\" com as citações acima (copie exatamente)"
         )
     else:
-        sources_block = "Nenhuma fonte foi encontrada (Semantic Scholar nem Wikipedia)."
+        sources_block = "Nenhuma fonte foi encontrada nas bases acadêmicas."
         instruction = (
             "Mesmo sem fontes externas, escreva em português brasileiro:\n"
             "1. Uma explicação geral sobre o tema com base no seu conhecimento\n"
-            "2. Indique que não foram encontradas fontes indexadas para este tema\n"
+            "2. Indique que não foram encontradas fontes indexadas\n"
             "3. Sugira termos de busca alternativos que o usuário pode tentar"
         )
 
-    user_prompt = f"""O usuário pesquisou: "{user_message}"
-
-{sources_block}
-
-{instruction}"""
+    user_prompt = (
+        f'O usuário pesquisou: "{user_message}"\n\n'
+        f"{sources_block}\n\n"
+        f"{instruction}"
+    )
 
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"

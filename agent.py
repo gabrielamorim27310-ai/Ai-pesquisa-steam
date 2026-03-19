@@ -1,7 +1,7 @@
 """
-Agente de Pesquisa Acadêmica — Semantic Scholar + Wikipedia + Claude Opus 4.6
+Agente de Pesquisa Acadêmica — Semantic Scholar + OpenAlex + arXiv + Claude Opus 4.6
 
-Busca em fontes confiáveis (artigos científicos e Wikipedia PT/EN) e retorna
+Busca em fontes acadêmicas confiáveis (artigos de grandes universidades) e retorna
 citações formatadas (ABNT, APA, MLA ou STEAM).
 """
 
@@ -84,94 +84,152 @@ def search_academic_papers(query: str, max_results: int = 5, year_from: int = No
 
 
 # ─────────────────────────────────────────────
-# Busca Wikipedia (PT e EN)
+# Busca OpenAlex (grandes universidades mundiais)
 # ─────────────────────────────────────────────
 
-def search_wikipedia(query: str, lang: str = "pt", max_results: int = 3) -> list[dict]:
+def search_openalex(query: str, max_results: int = 5) -> list[dict]:
     """
-    Busca na Wikipedia (qualquer idioma) e retorna lista de fontes confiáveis.
-    Usa a API pública da Wikimedia — gratuita, sem chave.
+    Busca via OpenAlex API — base aberta com +250 milhões de trabalhos acadêmicos
+    de universidades como Harvard, MIT, Stanford, USP, Unicamp etc.
+    Gratuita, sem necessidade de chave de API.
     """
-    base = f"https://{lang}.wikipedia.org/w/api.php"
     headers = {"User-Agent": "AcademicResearchAgent/1.0"}
-
-    # 1. Busca pelos títulos mais relevantes
     try:
-        search_resp = requests.get(base, params={
-            "action": "query",
-            "list": "search",
-            "srsearch": query,
-            "srlimit": max_results,
-            "format": "json",
-        }, headers=headers, timeout=10)
-        search_resp.raise_for_status()
-        hits = search_resp.json().get("query", {}).get("search", [])
+        resp = requests.get(
+            "https://api.openalex.org/works",
+            params={
+                "search": query,
+                "per_page": min(max_results, 10),
+                "select": (
+                    "title,authorships,publication_year,primary_location,"
+                    "doi,abstract_inverted_index,cited_by_count,open_access"
+                ),
+            },
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
     except Exception:
         return []
 
-    if not hits:
-        return []
+    papers = []
+    for item in data.get("results", []):
+        # Reconstrói o abstract a partir do índice invertido
+        inv = item.get("abstract_inverted_index") or {}
+        if inv:
+            word_pos = [(w, p) for w, positions in inv.items() for p in positions]
+            word_pos.sort(key=lambda x: x[1])
+            abstract = " ".join(w for w, _ in word_pos)
+        else:
+            abstract = ""
 
-    titles = [h["title"] for h in hits]
+        # Autores
+        authors = [
+            a.get("author", {}).get("display_name", "")
+            for a in (item.get("authorships") or [])
+        ]
 
-    # 2. Extrai resumo introdutório de cada página
-    try:
-        extract_resp = requests.get(base, params={
-            "action": "query",
-            "prop": "extracts|info",
-            "exintro": True,
-            "exsentences": 4,
-            "inprop": "url",
-            "titles": "|".join(titles),
-            "format": "json",
-            "redirects": 1,
-        }, headers=headers, timeout=10)
-        extract_resp.raise_for_status()
-        pages = extract_resp.json().get("query", {}).get("pages", {})
-    except Exception:
-        return []
+        # Periódico / fonte
+        loc = item.get("primary_location") or {}
+        source = loc.get("source") or {}
+        journal = source.get("display_name", "")
 
-    lang_label = "Wikipédia" if lang == "pt" else "Wikipedia"
-    sources = []
-    for page in pages.values():
-        title = page.get("title", "")
-        url = page.get("fullurl", f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}")
-        raw_extract = page.get("extract", "")
-        # Remove tags HTML simples do extrato
-        import re
-        summary = re.sub(r"<[^>]+>", "", raw_extract).strip()
-        if not summary:
-            continue
-        sources.append({
-            "source_type": "wikipedia",
-            "title": title,
-            "authors": [],
-            "year": "",
-            "journal": lang_label,
-            "abstract": summary[:600],
-            "url": url,
-            "citations": 0,
-            "doi": "",
-            "lang": lang,
+        # DOI e URL
+        doi = (item.get("doi") or "").replace("https://doi.org/", "")
+        url = loc.get("landing_page_url", "") or (item.get("open_access") or {}).get("oa_url", "")
+
+        papers.append({
+            "source_type": "openalex",
+            "title": item.get("title", "Título não disponível"),
+            "authors": [a for a in authors if a],
+            "year": item.get("publication_year") or "s.d.",
+            "journal": journal,
+            "abstract": abstract[:600],
+            "url": url or (f"https://doi.org/{doi}" if doi else ""),
+            "citations": item.get("cited_by_count", 0),
+            "doi": doi,
         })
 
-    return sources
+    return papers
+
+
+# ─────────────────────────────────────────────
+# Busca arXiv (Cornell University)
+# ─────────────────────────────────────────────
+
+def search_arxiv(query: str, max_results: int = 4) -> list[dict]:
+    """
+    Busca via arXiv API — repositório da Cornell University com preprints
+    de física, matemática, computação, biologia, economia etc.
+    Gratuita, sem necessidade de chave de API.
+    """
+    import xml.etree.ElementTree as ET
+
+    headers = {"User-Agent": "AcademicResearchAgent/1.0"}
+    try:
+        resp = requests.get(
+            "http://export.arxiv.org/api/query",
+            params={
+                "search_query": f"all:{query}",
+                "max_results": min(max_results, 10),
+                "sortBy": "relevance",
+            },
+            headers=headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+    except Exception:
+        return []
+
+    ns = {
+        "atom": "http://www.w3.org/2005/Atom",
+        "arxiv": "http://arxiv.org/schemas/atom",
+    }
+
+    papers = []
+    for entry in root.findall("atom:entry", ns):
+        title = (entry.findtext("atom:title", "", ns) or "").strip().replace("\n", " ")
+        abstract = (entry.findtext("atom:summary", "", ns) or "").strip().replace("\n", " ")
+        published = entry.findtext("atom:published", "", ns)
+        year = published[:4] if published else "s.d."
+        url = entry.findtext("atom:id", "", ns) or ""
+
+        authors = [
+            a.findtext("atom:name", "", ns)
+            for a in entry.findall("atom:author", ns)
+        ]
+
+        # DOI, se disponível
+        doi = ""
+        doi_el = entry.find("arxiv:doi", ns)
+        if doi_el is not None and doi_el.text:
+            doi = doi_el.text.strip()
+
+        papers.append({
+            "source_type": "arxiv",
+            "title": title,
+            "authors": [a for a in authors if a],
+            "year": year,
+            "journal": "arXiv (Cornell University)",
+            "abstract": abstract[:600],
+            "url": url,
+            "citations": 0,
+            "doi": doi,
+        })
+
+    return papers
 
 
 def format_citation(article: dict, style: str = "ABNT") -> str:
-    """Formata uma fonte (artigo, Wikipedia) no estilo ABNT, APA, MLA ou STEAM."""
+    """Formata uma fonte acadêmica no estilo ABNT, APA, MLA ou STEAM."""
     authors: list = article.get("authors", [])
     title: str = article.get("title", "")
     year = str(article.get("year", "s.d."))
     journal: str = article.get("journal", "")
     doi: str = article.get("doi", "")
     url: str = article.get("url", "")
-    source_type: str = article.get("source_type", "paper")
-
-    # Para fontes Wikipedia sem autores, usa o nome do portal como autor institucional
-    if source_type == "wikipedia" and not authors:
-        authors = [journal or "Wikipédia"]
-        year = year or _today().split()[-1]  # ano atual
 
     style = style.upper().strip()
 
@@ -390,27 +448,26 @@ def execute_tool(name: str, inputs: dict) -> str:
 # Sistema prompt do agente
 # ─────────────────────────────────────────────
 
-SYSTEM_PROMPT = """Você é um assistente de pesquisa que busca informações em fontes confiáveis.
-Ajuda estudantes, pesquisadores e profissionais a encontrar referências de qualidade
-e apresenta o conteúdo de forma clara e estruturada.
+SYSTEM_PROMPT = """Você é um assistente de pesquisa acadêmica que busca em fontes científicas confiáveis.
+Ajuda estudantes, pesquisadores e profissionais a encontrar referências de qualidade.
 
-Fontes utilizadas:
-- Semantic Scholar: base com +200 milhões de artigos científicos revisados por pares
-- Wikipedia PT e EN: enciclopédia colaborativa com conteúdo verificado
+Fontes utilizadas (todas gratuitas e confiáveis):
+- Semantic Scholar: +200 milhões de artigos revisados por pares
+- OpenAlex: índice aberto de papers de Harvard, MIT, Stanford, USP, Unicamp e outras grandes universidades
+- arXiv (Cornell University): preprints de física, matemática, computação, biologia, economia
 
 Fluxo de resposta:
-1. Analise a solicitação e identifique os termos-chave
-2. As fontes já foram buscadas em português E inglês em paralelo
-3. Selecione as mais relevantes (artigos e/ou Wikipedia)
-4. Apresente uma resposta estruturada:
+1. As fontes já foram buscadas em português E inglês em paralelo nas 3 bases
+2. Selecione as mais relevantes dos resultados combinados
+3. Apresente uma resposta estruturada:
    - Breve introdução sobre o tema (2-3 frases)
-   - Para cada fonte: título em negrito, origem (artigo científico / Wikipedia), resumo e relevância
+   - Para cada fonte: título em negrito, base de origem, autores, ano, resumo e relevância
    - Seção "Referências" com as citações formatadas
 
 Regras importantes:
 - SEMPRE forneça uma resposta — se não houver fontes, use seu conhecimento geral
-- Aceite fontes em qualquer idioma e resuma em português brasileiro
-- Indique claramente a origem de cada fonte (artigo científico vs. Wikipedia)
+- Indique a origem de cada fonte (Semantic Scholar / OpenAlex / arXiv-Cornell)
+- Aceite resultados em qualquer idioma e resuma em português brasileiro
 - Se o usuário não especificar estilo, use ABNT
 - Estilos aceitos: ABNT, APA, MLA, STEAM
 - No formato STEAM:
