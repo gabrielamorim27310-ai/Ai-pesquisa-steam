@@ -70,7 +70,7 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
         citations.append(format_citation(p, style=citation_style))
 
     # ── Passo 3: Gemini gera o resumo ────────────────────────────
-    emit("status", {"text": "Gerando análise com Gemini 2.0 Flash..."})
+    emit("status", {"text": "Gerando análise com Gemini 1.5 Flash..."})
 
     papers_json = json.dumps(papers, ensure_ascii=False, indent=2)
     citations_text = "\n\n".join(f"{i+1}. {c}" for i, c in enumerate(citations))
@@ -93,7 +93,7 @@ Escreva uma resposta estruturada em português brasileiro com:
     try:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.0-flash:generateContent?key={api_key}"
+            f"gemini-1.5-flash:generateContent?key={api_key}"
         )
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
