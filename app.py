@@ -81,7 +81,7 @@ def _parallel_search(query_pt: str, query_en: str) -> list[dict]:
         buckets["ss_pt"] + buckets["ss_en"] + buckets["openalex"] + buckets["arxiv"]
     )
     combined.sort(key=lambda x: x.get("citations", 0), reverse=True)
-    return combined[:5]
+    return combined[:3]
 
 
 def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
@@ -130,42 +130,32 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
 
     citations_text = "\n".join(f"{i+1}. {c}" for i, c in enumerate(citations))
 
-    if sources:
-        # Payload slim: apenas campos essenciais + abstract truncado a 180 chars
-        slim = [
-            {
-                "titulo": s.get("title", ""),
-                "autores": ", ".join(s.get("authors", [])[:3]),
-                "ano": s.get("year", ""),
-                "fonte": s.get("journal", ""),
-                "origem": {"openalex": "OpenAlex", "arxiv": "arXiv/Cornell"}.get(
-                    s.get("source_type", ""), "Semantic Scholar"
-                ),
-                "resumo": (s.get("abstract") or "")[:180],
-            }
-            for s in sources
-        ]
-        sources_block = (
-            f"Fontes ({len(slim)}):\n"
-            + json.dumps(slim, ensure_ascii=False)
-            + f"\n\nCitações ({citation_style}):\n{citations_text}"
+    def _src_line(s: dict) -> str:
+        origin = {"openalex": "OpenAlex", "arxiv": "arXiv/Cornell"}.get(
+            s.get("source_type", ""), "Semantic Scholar"
         )
-        instruction = (
-            "Responda em português brasileiro:\n"
-            "1. Introdução sobre o tema (2 frases)\n"
-            "2. Cada fonte: **título**, origem, autores, ano, resumo e relevância\n"
-            "3. Seção Referências com as citações acima (copie exatamente)"
-        )
-    else:
-        sources_block = "Nenhuma fonte encontrada nas bases acadêmicas."
-        instruction = (
-            "Responda em português brasileiro:\n"
-            "1. Explicação geral sobre o tema\n"
-            "2. Informe que não foram encontradas fontes indexadas\n"
-            "3. Sugira termos de busca alternativos"
+        authors = ", ".join(s.get("authors", [])[:2]) or "Autor desconhecido"
+        abstract = (s.get("abstract") or "")[:100]
+        return (
+            f"Título: {s.get('title','')}\n"
+            f"Autores: {authors} | Ano: {s.get('year','')} | Base: {origin}\n"
+            f"Resumo: {abstract}"
         )
 
-    user_prompt = f'Pesquisa: "{user_message}"\n\n{sources_block}\n\n{instruction}'
+    if sources:
+        sources_block = "\n---\n".join(_src_line(s) for s in sources)
+        user_prompt = (
+            f'Pesquisa: "{user_message}"\n\n'
+            f"FONTES:\n{sources_block}\n\n"
+            f"REFERÊNCIAS ({citation_style}):\n{citations_text}\n\n"
+            f"Em PT-BR: introdução (2 frases), cada fonte em negrito com relevância, "
+            f"depois seção Referências com as citações acima."
+        )
+    else:
+        user_prompt = (
+            f'Pesquisa: "{user_message}"\n\n'
+            f"Nenhuma fonte encontrada. Explique o tema em PT-BR e sugira termos alternativos."
+        )
 
     try:
         url = "https://api.groq.com/openai/v1/chat/completions"
@@ -175,7 +165,7 @@ def run_pipeline(user_message: str, citation_style: str = "ABNT") -> list[dict]:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": 2048,
+            "max_tokens": 800,
             "temperature": 0.7,
         }
         headers = {
