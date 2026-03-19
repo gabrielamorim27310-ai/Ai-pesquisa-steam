@@ -56,7 +56,6 @@ def run_agent_collecting_events(user_message: str) -> list[dict]:
             response = client.messages.create(
                 model="claude-opus-4-6",
                 max_tokens=8192,
-                thinking={"type": "adaptive"},
                 system=SYSTEM_PROMPT,
                 tools=TOOLS,
                 messages=messages,
@@ -109,8 +108,12 @@ def run_agent_collecting_events(user_message: str) -> list[dict]:
         emit("error", {"message": "Chave de API inválida. Verifique ANTHROPIC_API_KEY."})
     except anthropic.RateLimitError:
         emit("error", {"message": "Limite de requisições atingido. Aguarde alguns segundos."})
+    except anthropic.APIConnectionError as e:
+        emit("error", {"message": f"Não foi possível conectar à API da Anthropic. Tente novamente. ({str(e)})"})
+    except anthropic.APIStatusError as e:
+        emit("error", {"message": f"Erro da API ({e.status_code}): {e.message}"})
     except Exception as e:
-        emit("error", {"message": f"Erro interno: {str(e)}"})
+        emit("error", {"message": f"Erro interno: {type(e).__name__}: {str(e)}"})
 
     return events
 

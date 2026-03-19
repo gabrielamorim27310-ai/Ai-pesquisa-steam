@@ -339,7 +339,6 @@ def run_agent(user_message: str, verbose: bool = True) -> str:
         response = client.messages.create(
             model="claude-opus-4-6",
             max_tokens=8192,
-            thinking={"type": "adaptive"},
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=messages,
