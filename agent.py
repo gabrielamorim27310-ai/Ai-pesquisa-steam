@@ -9,7 +9,6 @@ import os
 import json
 import time
 import requests
-import anthropic
 
 # ─────────────────────────────────────────────
 # Funções de busca e formatação
@@ -315,69 +314,8 @@ Regras importantes:
 # ─────────────────────────────────────────────
 
 def run_agent(user_message: str, verbose: bool = True) -> str:
-    """
-    Executa o agente de pesquisa e retorna a resposta final.
-
-    Args:
-        user_message: Solicitação do usuário
-        verbose: Se True, imprime o progresso em tempo real
-
-    Returns:
-        Texto da resposta final do agente
-    """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return "❌ ANTHROPIC_API_KEY não configurada. Execute: export ANTHROPIC_API_KEY='sua-chave'"
-
-    client = anthropic.Anthropic(api_key=api_key)
-    messages = [{"role": "user", "content": user_message}]
-
-    if verbose:
-        print("\n🔍 Iniciando pesquisa acadêmica...\n")
-
-    while True:
-        response = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=8192,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,
-            messages=messages,
-        )
-
-        # Adiciona resposta ao histórico
-        messages.append({"role": "assistant", "content": response.content})
-
-        # Resposta final
-        if response.stop_reason == "end_turn":
-            for block in response.content:
-                if block.type == "text":
-                    return block.text
-            return ""
-
-        # Executa ferramentas
-        if response.stop_reason == "tool_use":
-            tool_results = []
-            for block in response.content:
-                if block.type == "tool_use":
-                    if verbose:
-                        args_preview = json.dumps(block.input, ensure_ascii=False)[:80]
-                        print(f"  ⚙️  {block.name}({args_preview}...)")
-
-                    result = execute_tool(block.name, block.input)
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result,
-                    })
-
-            messages.append({"role": "user", "content": tool_results})
-
-        else:
-            # Stop reason inesperado
-            for block in response.content:
-                if block.type == "text":
-                    return block.text
-            return ""
+    """Stub mantido para compatibilidade com a CLI local."""
+    return "Use app.py para executar o servidor web."
 
 
 # ─────────────────────────────────────────────
