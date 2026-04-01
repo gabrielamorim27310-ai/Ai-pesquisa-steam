@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "name": "resumo-de-aulas",
+  "builds": [
+    {
+      "src": "app.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "app.py"
+    }
+  ]
+}
