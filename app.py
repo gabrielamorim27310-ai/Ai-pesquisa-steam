@@ -12,8 +12,11 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
-app.config["UPLOAD_FOLDER"] = Path(__file__).parent / "uploads"
-app.config["RESUMOS_FOLDER"] = Path(__file__).parent / "resumos"
+
+# Vercel tem filesystem read-only, usar /tmp
+_TMP = Path("/tmp")
+app.config["UPLOAD_FOLDER"] = _TMP / "uploads"
+app.config["RESUMOS_FOLDER"] = _TMP / "resumos"
 
 AUDIO_EXTS = {".mp3", ".mp4", ".wav", ".m4a", ".ogg", ".webm", ".flac"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
