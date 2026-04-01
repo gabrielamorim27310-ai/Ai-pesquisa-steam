@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import base64
 import tempfile
@@ -23,6 +24,50 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 app.config["RESUMOS_FOLDER"].mkdir(exist_ok=True)
 app.config["UPLOAD_FOLDER"].mkdir(exist_ok=True)
+
+
+# ── Extração de conteúdo de URL ───────────────────────────────────────────────
+def _youtube_id(url: str):
+    """Extrai o ID do vídeo de uma URL do YouTube."""
+    patterns = [
+        r"(?:v=|youtu\.be/|/embed/|/v/)([A-Za-z0-9_-]{11})",
+        r"^([A-Za-z0-9_-]{11})$",
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def extrair_conteudo_url(url: str) -> tuple[str, str]:
+    """
+    Retorna (tipo, conteudo):
+      tipo: 'youtube' | 'pagina'
+      conteudo: texto extraído (truncado)
+    """
+    import requests
+
+    vid_id = _youtube_id(url)
+    if vid_id:
+        try:
+            from youtube_transcript_api import YouTubeTranscriptApi
+            partes = YouTubeTranscriptApi.get_transcript(vid_id, languages=["pt", "pt-BR", "en"])
+            texto = " ".join(p["text"] for p in partes)
+            return "youtube", texto[:3000]
+        except Exception as e:
+            return "youtube", f"[Não foi possível obter legenda: {e}]"
+
+    # Página web genérica
+    try:
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+        # Remove tags HTML
+        texto = re.sub(r"<[^>]+>", " ", resp.text)
+        texto = re.sub(r"\s+", " ", texto).strip()
+        return "pagina", texto[:3000]
+    except Exception as e:
+        return "pagina", f"[Erro ao acessar o link: {e}]"
 
 
 # ── Transcrição de áudio via Groq Whisper ─────────────────────────────────────
@@ -74,7 +119,8 @@ def descrever_imagem(caminho: str) -> str:
 
 
 # ── Geração do resumo HTML via Groq ───────────────────────────────────────────
-def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str) -> str:
+def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str,
+                  conteudo_url: str = "", tipo_url: str = "") -> str:
     from groq import Groq
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
 
@@ -83,6 +129,9 @@ def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str) -
         partes.append(f"TRANSCRIÇÃO DO ÁUDIO:\n{transcricao[:1500]}")
     for i, desc in enumerate(descricoes_imagens, 1):
         partes.append(f"IMAGEM {i}:\n{desc[:400]}")
+    if conteudo_url:
+        label = "TRANSCRIÇÃO DO VÍDEO (YouTube)" if tipo_url == "youtube" else "CONTEÚDO DA PÁGINA"
+        partes.append(f"{label}:\n{conteudo_url[:1500]}")
 
     conteudo = "\n\n".join(partes) if partes else "Nenhum conteúdo enviado."
 
@@ -116,7 +165,8 @@ def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str) -
 
 
 # ── Converter resumo em HTML ───────────────────────────────────────────────────
-def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str, n_imagens: int, tem_audio: bool) -> str:
+def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
+                     n_imagens: int, tem_audio: bool, tipo_url: str = "") -> str:
     linhas = resumo_texto.split("\n")
     blocos = []
     for linha in linhas:
@@ -140,6 +190,10 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str, n_imagens: 
         fontes.append('<span class="badge audio">🎵 Áudio</span>')
     if n_imagens:
         fontes.append(f'<span class="badge imagem">🖼️ {n_imagens} imagem(ns)</span>')
+    if tipo_url == "youtube":
+        fontes.append('<span class="badge youtube">▶️ YouTube</span>')
+    elif tipo_url == "pagina":
+        fontes.append('<span class="badge link">🔗 Link</span>')
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -179,6 +233,8 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str, n_imagens: 
     }}
     .badge.audio {{ background: #fef3c7; color: #92400e; }}
     .badge.imagem {{ background: #dbeafe; color: #1e40af; }}
+    .badge.youtube {{ background: #fee2e2; color: #991b1b; }}
+    .badge.link {{ background: #d1fae5; color: #065f46; }}
     .body {{ padding: 2rem 2.5rem; line-height: 1.75; }}
     h2 {{
       font-size: 1.2rem;
@@ -239,10 +295,12 @@ def index():
 @app.route("/upload", methods=["POST"])
 def upload():
     titulo = request.form.get("titulo", "Aula sem título").strip() or "Aula sem título"
+    link = request.form.get("link", "").strip()
     arquivos = request.files.getlist("arquivos")
 
-    if not arquivos or all(f.filename == "" for f in arquivos):
-        return jsonify({"erro": "Nenhum arquivo enviado."}), 400
+    sem_arquivos = not arquivos or all(f.filename == "" for f in arquivos)
+    if sem_arquivos and not link:
+        return jsonify({"erro": "Envie pelo menos um arquivo ou um link."}), 400
 
     audios, imagens = [], []
     pasta_upload = app.config["UPLOAD_FOLDER"]
@@ -259,7 +317,7 @@ def upload():
         elif ext in IMAGE_EXTS:
             imagens.append(str(destino))
 
-    # Processar
+    # Processar áudio
     transcricao = ""
     if audios:
         try:
@@ -267,16 +325,26 @@ def upload():
         except Exception as e:
             transcricao = f"[Erro na transcrição: {e}]"
 
+    # Processar imagens
     descricoes = []
-    for img in imagens[:4]:  # máx 4 imagens para não estourar tokens
+    for img in imagens[:4]:
         try:
             descricoes.append(descrever_imagem(img))
         except Exception as e:
             descricoes.append(f"[Erro ao descrever imagem: {e}]")
 
+    # Processar link
+    conteudo_url, tipo_url = "", ""
+    if link:
+        try:
+            tipo_url, conteudo_url = extrair_conteudo_url(link)
+        except Exception as e:
+            conteudo_url = f"[Erro ao processar link: {e}]"
+            tipo_url = "pagina"
+
     # Gerar resumo
     try:
-        resumo_texto = gerar_resumo(transcricao, descricoes, titulo)
+        resumo_texto = gerar_resumo(transcricao, descricoes, titulo, conteudo_url, tipo_url)
     except Exception as e:
         resumo_texto = f"Erro ao gerar resumo: {e}"
 
@@ -284,19 +352,19 @@ def upload():
     agora = datetime.now()
     slug = agora.strftime("%Y%m%d_%H%M%S")
     data_hora = agora.strftime("%d/%m/%Y às %H:%M")
-    html_content = resumo_para_html(resumo_texto, titulo, data_hora, len(imagens), bool(audios))
+    html_content = resumo_para_html(resumo_texto, titulo, data_hora, len(imagens), bool(audios), tipo_url)
 
     pasta_resumos = app.config["RESUMOS_FOLDER"]
     html_path = pasta_resumos / f"resumo_{slug}.html"
     html_path.write_text(html_content, encoding="utf-8")
 
-    # Salvar metadados
     meta = {
         "titulo": titulo,
         "slug": slug,
         "data_hora": data_hora,
         "n_imagens": len(imagens),
         "tem_audio": bool(audios),
+        "tipo_url": tipo_url,
         "arquivo": f"resumo_{slug}.html",
     }
     (pasta_resumos / f"resumo_{slug}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
