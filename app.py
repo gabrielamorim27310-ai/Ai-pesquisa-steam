@@ -148,41 +148,70 @@ def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str,
             {
                 "role": "user",
                 "content": (
-                    f"Crie um resumo organizado da aula '{titulo}' com base neste conteúdo:\n\n"
+                    f"Crie um resumo detalhado e completo da aula '{titulo}' com base neste conteúdo:\n\n"
                     f"{conteudo}\n\n"
                     "Estruture o resumo com:\n"
-                    "1. Título da aula\n"
-                    "2. Tópicos principais (com subtópicos se necessário)\n"
-                    "3. Conceitos-chave em destaque\n"
-                    "4. Conclusão / O que aprender\n"
-                    "Responda APENAS com o conteúdo do resumo em texto simples organizado."
+                    "# Título da aula\n"
+                    "## Introdução\n"
+                    "## Tópicos Principais (desenvolva cada tópico com detalhes e subtópicos)\n"
+                    "## Conceitos-chave (**destaque** os termos importantes em negrito)\n"
+                    "## Exemplos e Aplicações\n"
+                    "## Conclusão e O que aprender\n"
+                    "Use markdown: # para títulos, ## para subtítulos, **negrito** para termos importantes, - para listas.\n"
+                    "Seja detalhado e didático."
                 ),
             },
         ],
-        max_tokens=900,
+        max_tokens=2500,
     )
     return resp.choices[0].message.content.strip()
 
 
 # ── Converter resumo em HTML ───────────────────────────────────────────────────
+def _md_inline(texto: str) -> str:
+    """Converte markdown inline (**negrito**, *itálico*) para HTML."""
+    texto = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", texto)
+    texto = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", texto)
+    texto = re.sub(r"\*(.+?)\*", r"<em>\1</em>", texto)
+    texto = re.sub(r"`(.+?)`", r"<code>\1</code>", texto)
+    return texto
+
+
 def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
                      n_imagens: int, tem_audio: bool, tipo_url: str = "") -> str:
     linhas = resumo_texto.split("\n")
     blocos = []
-    for linha in linhas:
-        linha = linha.strip()
-        if not linha:
+    i = 0
+    while i < len(linhas):
+        linha = linhas[i].rstrip()
+        stripped = linha.strip()
+
+        if not stripped:
+            i += 1
             continue
-        if linha.startswith("# ") or linha.isupper() and len(linha) < 80:
-            blocos.append(f"<h2>{linha.lstrip('# ')}</h2>")
-        elif linha.startswith("## "):
-            blocos.append(f"<h3>{linha.lstrip('# ')}</h3>")
-        elif linha.startswith("- ") or linha.startswith("• "):
-            blocos.append(f"<li>{linha[2:]}</li>")
-        elif linha[0].isdigit() and linha[1] in ".):":
-            blocos.append(f"<li>{linha[2:].strip()}</li>")
+
+        # Títulos markdown
+        if stripped.startswith("#### "):
+            blocos.append(f"<h4>{_md_inline(stripped[5:])}</h4>")
+        elif stripped.startswith("### "):
+            blocos.append(f"<h3>{_md_inline(stripped[4:])}</h3>")
+        elif stripped.startswith("## "):
+            blocos.append(f"<h2>{_md_inline(stripped[3:])}</h2>")
+        elif stripped.startswith("# "):
+            blocos.append(f"<h2>{_md_inline(stripped[2:])}</h2>")
+        # Listas com - • *
+        elif stripped.startswith(("- ", "• ", "* ")):
+            blocos.append(f"<li>{_md_inline(stripped[2:])}</li>")
+        # Listas numeradas: "1. " ou "1) "
+        elif re.match(r"^\d+[.)]\s", stripped):
+            texto = re.sub(r"^\d+[.)]\s+", "", stripped)
+            blocos.append(f"<li>{_md_inline(texto)}</li>")
+        # Linha toda em maiúsculas = título
+        elif stripped.isupper() and len(stripped) < 80:
+            blocos.append(f"<h2>{stripped}</h2>")
         else:
-            blocos.append(f"<p>{linha}</p>")
+            blocos.append(f"<p>{_md_inline(stripped)}</p>")
+        i += 1
 
     corpo = "\n    ".join(blocos)
     fontes = []
@@ -249,6 +278,19 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
       margin: 1.2rem 0 .4rem;
     }}
     p {{ margin: .5rem 0; color: #374151; }}
+    strong {{ color: #1a202c; }}
+    h4 {{
+      font-size: 1rem;
+      color: #6d28d9;
+      margin: 1rem 0 .3rem;
+    }}
+    code {{
+      background: #f3f4f6;
+      padding: .1rem .35rem;
+      border-radius: 4px;
+      font-size: .88em;
+      color: #7c3aed;
+    }}
     li {{
       margin: .4rem 0 .4rem 1.5rem;
       color: #374151;
