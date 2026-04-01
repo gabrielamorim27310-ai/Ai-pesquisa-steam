@@ -245,32 +245,66 @@
   const loading = document.getElementById('loading');
   let selectedFiles = [];
 
-  document.getElementById('browse-btn').addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('click', () => fileInput.click());
-
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-  dropZone.addEventListener('drop', e => {
+  // Clique na drop-zone abre o seletor de arquivo (uma vez só)
+  dropZone.addEventListener('click', function(e) {
     e.preventDefault();
-    dropZone.classList.remove('dragover');
-    addFiles([...e.dataTransfer.files]);
+    e.stopPropagation();
+    fileInput.value = '';  // reseta pra permitir re-selecionar mesmo arquivo
+    fileInput.click();
   });
 
-  fileInput.addEventListener('change', () => addFiles([...fileInput.files]));
+  // Drag & drop
+  dropZone.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+  });
+  dropZone.addEventListener('drop', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      addFiles(Array.from(e.dataTransfer.files));
+    }
+  });
+
+  // Quando seleciona pelo seletor nativo
+  fileInput.addEventListener('change', function() {
+    if (fileInput.files && fileInput.files.length > 0) {
+      addFiles(Array.from(fileInput.files));
+    }
+  });
 
   function addFiles(files) {
-    files.forEach(f => { if (!selectedFiles.find(x => x.name === f.name)) selectedFiles.push(f); });
+    files.forEach(function(f) {
+      if (!selectedFiles.find(function(x) { return x.name === f.name && x.size === f.size; })) {
+        selectedFiles.push(f);
+      }
+    });
+    syncInput();
     renderList();
-    // Atualiza o input real
-    const dt = new DataTransfer();
-    selectedFiles.forEach(f => dt.items.add(f));
+  }
+
+  function syncInput() {
+    var dt = new DataTransfer();
+    selectedFiles.forEach(function(f) { dt.items.add(f); });
     fileInput.files = dt.files;
   }
 
+  function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    syncInput();
+    renderList();
+  }
+
   function fileIcon(name) {
-    const ext = name.split('.').pop().toLowerCase();
-    const audio = ['mp3','wav','m4a','ogg','webm','flac','mp4'];
-    return audio.includes(ext) ? '🎵' : '🖼️';
+    var ext = name.split('.').pop().toLowerCase();
+    var audio = ['mp3','wav','m4a','ogg','webm','flac','mp4'];
+    return audio.indexOf(ext) >= 0 ? '🎵' : '🖼️';
   }
 
   function fmtSize(bytes) {
@@ -281,17 +315,28 @@
 
   function renderList() {
     fileList.innerHTML = '';
-    selectedFiles.forEach((f, i) => {
-      const div = document.createElement('div');
+    selectedFiles.forEach(function(f, i) {
+      var div = document.createElement('div');
       div.className = 'file-item';
-      div.innerHTML = `<span class="icon-f">${fileIcon(f.name)}</span>
-        <span class="name">${f.name}</span>
-        <span class="size">${fmtSize(f.size)}</span>`;
+      div.innerHTML =
+        '<span class="icon-f">' + fileIcon(f.name) + '</span>' +
+        '<span class="name">' + f.name + '</span>' +
+        '<span class="size">' + fmtSize(f.size) + '</span>' +
+        '<span class="remove-btn" onclick="removeFile(' + i + ')" style="cursor:pointer;color:#ef4444;font-weight:700;padding:0 .4rem;" title="Remover">✕</span>';
       fileList.appendChild(div);
     });
+    // Atualiza estado do botão
+    submitBtn.disabled = selectedFiles.length === 0;
   }
 
-  form.addEventListener('submit', () => {
+  // Botão começa desabilitado
+  submitBtn.disabled = true;
+
+  form.addEventListener('submit', function(e) {
+    if (selectedFiles.length === 0) {
+      e.preventDefault();
+      return;
+    }
     submitBtn.disabled = true;
     submitBtn.textContent = 'Processando...';
     loading.style.display = 'block';
