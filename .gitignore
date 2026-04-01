@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
-*.pyo
 .env
-.vercel
+uploads/
+resumos/
+*.egg-info/
+.venv/
