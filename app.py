@@ -167,6 +167,36 @@ def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str,
     return resp.choices[0].message.content.strip()
 
 
+# ── Gera prompts de imagem para ilustrar o resumo ─────────────────────────────
+def gerar_prompts_imagens(resumo_texto: str, titulo: str) -> list[str]:
+    """Pede ao Groq 2 prompts em inglês para imagens educacionais via Pollinations."""
+    from groq import Groq
+    client = Groq(api_key=os.environ["GROQ_API_KEY"])
+    # Pega os primeiros 800 chars do resumo como contexto
+    trecho = resumo_texto[:800]
+    resp = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You generate short image prompts for educational illustrations."},
+            {"role": "user", "content": (
+                f"For a school summary about '{titulo}', suggest exactly 2 image prompts in English "
+                f"based on this content:\n{trecho}\n\n"
+                "Rules: each prompt on its own line, descriptive and visual, educational style, "
+                "no text in image, bright colors, flat design illustration. "
+                "Output ONLY the 2 prompts, one per line, nothing else."
+            )},
+        ],
+        max_tokens=120,
+    )
+    linhas = [l.strip().strip('"').strip("'") for l in resp.choices[0].message.content.strip().split("\n") if l.strip()]
+    return linhas[:2]
+
+
+def _pollinations_url(prompt: str) -> str:
+    from urllib.parse import quote
+    return f"https://image.pollinations.ai/prompt/{quote(prompt)}?width=700&height=420&nologo=true&seed=42"
+
+
 # ── Converter resumo em HTML ───────────────────────────────────────────────────
 def _md_inline(texto: str) -> str:
     """Converte markdown inline (**negrito**, *itálico*) para HTML."""
@@ -178,7 +208,9 @@ def _md_inline(texto: str) -> str:
 
 
 def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
-                     n_imagens: int, tem_audio: bool, tipo_url: str = "") -> str:
+                     n_imagens: int, tem_audio: bool, tipo_url: str = "",
+                     img_urls: list[str] | None = None, slug: str = "") -> str:
+    img_urls = img_urls or []
     linhas = resumo_texto.split("\n")
     blocos = []
     i = 0
@@ -214,6 +246,23 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
         i += 1
 
     corpo = "\n    ".join(blocos)
+
+    # Bloco de imagens ilustrativas
+    if img_urls:
+        itens = "".join(
+            f'<div class="ilustracao-item">'
+            f'<img src="{url}" alt="Ilustração {i+1}" loading="lazy">'
+            f'<p>Ilustração {i+1}</p>'
+            f'</div>'
+            for i, url in enumerate(img_urls)
+        )
+        ilustracoes_html = f'<div class="ilustracoes">{itens}</div>'
+    else:
+        ilustracoes_html = ""
+
+    slug_placeholder = f"/resumo/{slug}" if slug else "#"
+    titulo_safe = titulo.replace("'", "").replace('"', "")
+
     fontes = []
     if tem_audio:
         fontes.append('<span class="badge audio">🎵 Áudio</span>')
@@ -295,12 +344,46 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
       margin: .4rem 0 .4rem 1.5rem;
       color: #374151;
     }}
+    /* Imagens ilustrativas */
+    .ilustracoes {{
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      padding: 1.5rem 2.5rem;
+      background: #fafafa;
+      border-top: 1px solid #f3f4f6;
+    }}
+    .ilustracao-item {{
+      flex: 1;
+      min-width: 240px;
+    }}
+    .ilustracao-item img {{
+      width: 100%;
+      border-radius: 10px;
+      box-shadow: 0 2px 12px rgba(0,0,0,.1);
+      display: block;
+    }}
+    .ilustracao-item p {{
+      font-size: .75rem;
+      color: #9ca3af;
+      text-align: center;
+      margin-top: .4rem;
+    }}
     .footer {{
       text-align: center;
       padding: 1.2rem;
       font-size: .78rem;
       color: #9ca3af;
       border-top: 1px solid #f3f4f6;
+    }}
+    /* Print / PDF */
+    @media print {{
+      body {{ background: #fff; padding: 0; }}
+      .card {{ box-shadow: none; border-radius: 0; }}
+      .actions {{ display: none !important; }}
+      .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
+      .ilustracoes {{ break-inside: avoid; }}
+      h2 {{ break-after: avoid; }}
     }}
     /* Barra de ações */
     .actions {{
@@ -342,11 +425,14 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
     {corpo}
     </div>
 
+    {ilustracoes_html}
+
     <!-- Barra de ações -->
     <div class="actions">
       <button class="btn btn-primary" onclick="baixarHTML()">⬇️ Baixar HTML</button>
+      <a class="btn btn-primary" href="{slug_placeholder}/docx" download>📄 Baixar DOCX</a>
       <button class="btn btn-green" onclick="copiarTexto()">📋 Copiar texto</button>
-      <a class="btn btn-secondary" href="javascript:window.print()">🖨️ Imprimir</a>
+      <button class="btn btn-secondary" onclick="window.print()">🖨️ Salvar PDF</button>
       <a class="btn btn-secondary" href="/">← Voltar</a>
       <span id="copy-msg">Copiado!</span>
     </div>
@@ -360,7 +446,7 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
       var blob = new Blob([html], {{type: 'text/html;charset=utf-8'}});
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = '{titulo.replace("'", "").replace('"', '')}.html';
+      a.download = '{titulo_safe}.html';
       a.click();
       URL.revokeObjectURL(a.href);
     }}
@@ -376,6 +462,25 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
   </script>
 </body>
 </html>"""
+
+
+# ── Helpers DOCX ─────────────────────────────────────────────────────────────
+def _docx_inline(paragraph, texto: str):
+    """Adiciona runs com negrito/itálico a um parágrafo de DOCX."""
+    partes = re.split(r"(\*\*\*.*?\*\*\*|\*\*.*?\*\*|\*.*?\*)", texto)
+    for parte in partes:
+        if parte.startswith("***") and parte.endswith("***"):
+            r = paragraph.add_run(parte[3:-3])
+            r.bold = True
+            r.italic = True
+        elif parte.startswith("**") and parte.endswith("**"):
+            r = paragraph.add_run(parte[2:-2])
+            r.bold = True
+        elif parte.startswith("*") and parte.endswith("*"):
+            r = paragraph.add_run(parte[1:-1])
+            r.italic = True
+        else:
+            paragraph.add_run(parte)
 
 
 # ── Rotas Flask ───────────────────────────────────────────────────────────────
@@ -448,11 +553,19 @@ def upload():
     except Exception as e:
         resumo_texto = f"Erro ao gerar resumo: {e}"
 
+    # Gerar imagens ilustrativas via Pollinations.ai
+    img_urls = []
+    try:
+        prompts = gerar_prompts_imagens(resumo_texto, titulo)
+        img_urls = [_pollinations_url(p) for p in prompts if p]
+    except Exception:
+        pass  # imagens são opcionais
+
     # Salvar HTML
     agora = datetime.now()
     slug = agora.strftime("%Y%m%d_%H%M%S")
     data_hora = agora.strftime("%d/%m/%Y às %H:%M")
-    html_content = resumo_para_html(resumo_texto, titulo, data_hora, len(imagens), bool(audios), tipo_url)
+    html_content = resumo_para_html(resumo_texto, titulo, data_hora, len(imagens), bool(audios), tipo_url, img_urls, slug)
 
     pasta_resumos = app.config["RESUMOS_FOLDER"]
     html_path = pasta_resumos / f"resumo_{slug}.html"
@@ -468,6 +581,8 @@ def upload():
         "arquivo": f"resumo_{slug}.html",
     }
     (pasta_resumos / f"resumo_{slug}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    # Salva texto puro para exportar depois em DOCX
+    (pasta_resumos / f"resumo_{slug}.txt").write_text(resumo_texto, encoding="utf-8")
 
     return redirect(url_for("ver_resumo", slug=slug))
 
@@ -479,6 +594,70 @@ def ver_resumo(slug: str):
     if not html_path.exists():
         return "Resumo não encontrado.", 404
     return html_path.read_text(encoding="utf-8")
+
+
+@app.route("/resumo/<slug>/docx")
+def baixar_docx(slug: str):
+    from docx import Document
+    from docx.shared import Pt, RGBColor
+    from io import BytesIO
+    from flask import send_file
+
+    pasta = app.config["RESUMOS_FOLDER"]
+    txt_path = pasta / f"resumo_{slug}.txt"
+    json_path = pasta / f"resumo_{slug}.json"
+
+    if not txt_path.exists():
+        return "Resumo não encontrado.", 404
+
+    resumo_texto = txt_path.read_text(encoding="utf-8")
+    meta = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
+    titulo = meta.get("titulo", "Resumo de Aula")
+    data_hora = meta.get("data_hora", "")
+
+    doc = Document()
+
+    # Título principal
+    t = doc.add_heading(titulo, level=0)
+    t.runs[0].font.color.rgb = RGBColor(0x4F, 0x46, 0xE5)
+
+    if data_hora:
+        p = doc.add_paragraph(f"Gerado em {data_hora}")
+        p.runs[0].font.size = Pt(9)
+        p.runs[0].font.color.rgb = RGBColor(0x9C, 0xA3, 0xAF)
+
+    doc.add_paragraph("")
+
+    for linha in resumo_texto.split("\n"):
+        stripped = linha.strip()
+        if not stripped:
+            doc.add_paragraph("")
+            continue
+        if stripped.startswith("#### "):
+            doc.add_heading(stripped[5:], level=4)
+        elif stripped.startswith("### "):
+            doc.add_heading(stripped[4:], level=3)
+        elif stripped.startswith("## "):
+            doc.add_heading(stripped[3:], level=2)
+        elif stripped.startswith("# "):
+            doc.add_heading(stripped[2:], level=1)
+        elif stripped.startswith(("- ", "• ", "* ")):
+            p = doc.add_paragraph(style="List Bullet")
+            _docx_inline(p, stripped[2:])
+        elif re.match(r"^\d+[.)]\s", stripped):
+            texto = re.sub(r"^\d+[.)]\s+", "", stripped)
+            p = doc.add_paragraph(style="List Number")
+            _docx_inline(p, texto)
+        else:
+            p = doc.add_paragraph()
+            _docx_inline(p, stripped)
+
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    nome_arquivo = re.sub(r"[^\w\s-]", "", titulo)[:50].strip() + ".docx"
+    return send_file(buf, as_attachment=True, download_name=nome_arquivo,
+                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 @app.route("/resumos/<path:filename>")
