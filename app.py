@@ -167,36 +167,6 @@ def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str,
     return resp.choices[0].message.content.strip()
 
 
-# ── Gera prompts de imagem para ilustrar o resumo ─────────────────────────────
-def gerar_prompts_imagens(resumo_texto: str, titulo: str) -> list[str]:
-    """Pede ao Groq 2 prompts em inglês para imagens educacionais via Pollinations."""
-    from groq import Groq
-    client = Groq(api_key=os.environ["GROQ_API_KEY"])
-    # Pega os primeiros 800 chars do resumo como contexto
-    trecho = resumo_texto[:800]
-    resp = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": "You generate short image prompts for educational illustrations."},
-            {"role": "user", "content": (
-                f"For a school summary about '{titulo}', suggest exactly 2 image prompts in English "
-                f"based on this content:\n{trecho}\n\n"
-                "Rules: each prompt on its own line, descriptive and visual, educational style, "
-                "no text in image, bright colors, flat design illustration. "
-                "Output ONLY the 2 prompts, one per line, nothing else."
-            )},
-        ],
-        max_tokens=120,
-    )
-    linhas = [l.strip().strip('"').strip("'") for l in resp.choices[0].message.content.strip().split("\n") if l.strip()]
-    return linhas[:2]
-
-
-def _pollinations_url(prompt: str) -> str:
-    from urllib.parse import quote
-    return f"https://image.pollinations.ai/prompt/{quote(prompt)}?width=700&height=420&nologo=true&seed=42"
-
-
 # ── Converter resumo em HTML ───────────────────────────────────────────────────
 def _md_inline(texto: str) -> str:
     """Converte markdown inline (**negrito**, *itálico*) para HTML."""
@@ -209,8 +179,7 @@ def _md_inline(texto: str) -> str:
 
 def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
                      n_imagens: int, tem_audio: bool, tipo_url: str = "",
-                     img_urls: list[str] | None = None, slug: str = "") -> str:
-    img_urls = img_urls or []
+                     slug: str = "") -> str:
     linhas = resumo_texto.split("\n")
     blocos = []
     i = 0
@@ -247,19 +216,6 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
 
     corpo = "\n    ".join(blocos)
 
-    # Bloco de imagens ilustrativas
-    if img_urls:
-        itens = "".join(
-            f'<div class="ilustracao-item">'
-            f'<img src="{url}" alt="Ilustração {i+1}" loading="lazy">'
-            f'<p>Ilustração {i+1}</p>'
-            f'</div>'
-            for i, url in enumerate(img_urls)
-        )
-        ilustracoes_html = f'<div class="ilustracoes">{itens}</div>'
-    else:
-        ilustracoes_html = ""
-
     slug_placeholder = f"/resumo/{slug}" if slug else "#"
     titulo_safe = titulo.replace("'", "").replace('"', "")
 
@@ -279,6 +235,7 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{titulo} — Resumo de Aula</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
@@ -344,31 +301,6 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
       margin: .4rem 0 .4rem 1.5rem;
       color: #374151;
     }}
-    /* Imagens ilustrativas */
-    .ilustracoes {{
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
-      padding: 1.5rem 2.5rem;
-      background: #fafafa;
-      border-top: 1px solid #f3f4f6;
-    }}
-    .ilustracao-item {{
-      flex: 1;
-      min-width: 240px;
-    }}
-    .ilustracao-item img {{
-      width: 100%;
-      border-radius: 10px;
-      box-shadow: 0 2px 12px rgba(0,0,0,.1);
-      display: block;
-    }}
-    .ilustracao-item p {{
-      font-size: .75rem;
-      color: #9ca3af;
-      text-align: center;
-      margin-top: .4rem;
-    }}
     .footer {{
       text-align: center;
       padding: 1.2rem;
@@ -424,8 +356,6 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
     <div class="body" id="resumo-body">
     {corpo}
     </div>
-
-    {ilustracoes_html}
 
     <!-- Barra de ações -->
     <div class="actions">
@@ -553,19 +483,11 @@ def upload():
     except Exception as e:
         resumo_texto = f"Erro ao gerar resumo: {e}"
 
-    # Gerar imagens ilustrativas via Pollinations.ai
-    img_urls = []
-    try:
-        prompts = gerar_prompts_imagens(resumo_texto, titulo)
-        img_urls = [_pollinations_url(p) for p in prompts if p]
-    except Exception:
-        pass  # imagens são opcionais
-
     # Salvar HTML
     agora = datetime.now()
     slug = agora.strftime("%Y%m%d_%H%M%S")
     data_hora = agora.strftime("%d/%m/%Y às %H:%M")
-    html_content = resumo_para_html(resumo_texto, titulo, data_hora, len(imagens), bool(audios), tipo_url, img_urls, slug)
+    html_content = resumo_para_html(resumo_texto, titulo, data_hora, len(imagens), bool(audios), tipo_url, slug)
 
     pasta_resumos = app.config["RESUMOS_FOLDER"]
     html_path = pasta_resumos / f"resumo_{slug}.html"

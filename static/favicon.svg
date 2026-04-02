@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <!-- Livro -->
+  <rect x="12" y="14" width="18" height="36" rx="3" fill="#fff" opacity=".95"/>
+  <rect x="34" y="14" width="18" height="36" rx="3" fill="#fff" opacity=".85"/>
+  <!-- Lombada -->
+  <rect x="29" y="14" width="6" height="36" rx="2" fill="#c4b5fd"/>
+  <!-- Linhas no livro esquerdo -->
+  <rect x="15" y="22" width="12" height="2" rx="1" fill="#a5b4fc"/>
+  <rect x="15" y="27" width="10" height="2" rx="1" fill="#a5b4fc"/>
+  <rect x="15" y="32" width="12" height="2" rx="1" fill="#a5b4fc"/>
+  <rect x="15" y="37" width="9" height="2" rx="1" fill="#a5b4fc"/>
+  <!-- Linhas no livro direito -->
+  <rect x="37" y="22" width="12" height="2" rx="1" fill="#ddd6fe"/>
+  <rect x="37" y="27" width="10" height="2" rx="1" fill="#ddd6fe"/>
+  <rect x="37" y="32" width="12" height="2" rx="1" fill="#ddd6fe"/>
+  <rect x="37" y="37" width="9" height="2" rx="1" fill="#ddd6fe"/>
+</svg>
