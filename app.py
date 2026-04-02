@@ -2,10 +2,10 @@ import os
 import re
 import json
 import base64
-import tempfile
 from pathlib import Path
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, jsonify, send_from_directory
+from flask import (Flask, render_template, request, redirect, url_for,
+                   jsonify, send_from_directory, session, flash)
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
 
@@ -13,6 +13,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-mude-em-producao")
 
 # Vercel tem filesystem read-only, usar /tmp
 _TMP = Path("/tmp")
@@ -24,6 +25,82 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 
 app.config["RESUMOS_FOLDER"].mkdir(exist_ok=True)
 app.config["UPLOAD_FOLDER"].mkdir(exist_ok=True)
+
+
+# ── Supabase ──────────────────────────────────────────────────────────────────
+def _supa():
+    from supabase import create_client
+    return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+
+
+def usuario_logado() -> dict | None:
+    """Retorna dados do usuário da sessão ou None."""
+    return session.get("usuario")
+
+
+def salvar_resumo_nuvem(slug: str, titulo: str, data_hora: str,
+                        html: str, txt: str, meta: dict) -> bool:
+    """Salva o resumo no Supabase Storage e registra na tabela. Retorna True se ok."""
+    uid = (usuario_logado() or {}).get("id")
+    if not uid:
+        return False
+    try:
+        sb = _supa()
+        prefix = f"{uid}/{slug}"
+        sb.storage.from_("resumos").upload(
+            f"{prefix}.html", html.encode(), {"content-type": "text/html; charset=utf-8", "upsert": "true"})
+        sb.storage.from_("resumos").upload(
+            f"{prefix}.txt", txt.encode(), {"content-type": "text/plain; charset=utf-8", "upsert": "true"})
+        sb.table("resumos").insert({
+            "user_id": uid, "slug": slug, "titulo": titulo,
+            "data_hora": data_hora, "n_imagens": meta.get("n_imagens", 0),
+            "tem_audio": meta.get("tem_audio", False),
+            "tipo_url": meta.get("tipo_url", ""),
+        }).execute()
+        return True
+    except Exception as e:
+        app.logger.warning(f"Nuvem: {e}")
+        return False
+
+
+def listar_resumos_nuvem() -> list[dict]:
+    """Lista resumos do usuário logado."""
+    uid = (usuario_logado() or {}).get("id")
+    if not uid:
+        return []
+    try:
+        sb = _supa()
+        res = sb.table("resumos").select("*") \
+            .eq("user_id", uid).order("created_at", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        app.logger.warning(f"Listar nuvem: {e}")
+        return []
+
+
+def carregar_resumo_nuvem(slug: str) -> str | None:
+    """Baixa o HTML de um resumo do Supabase Storage."""
+    uid = (usuario_logado() or {}).get("id")
+    if not uid:
+        return None
+    try:
+        sb = _supa()
+        dados = sb.storage.from_("resumos").download(f"{uid}/{slug}.html")
+        return dados.decode("utf-8")
+    except Exception:
+        return None
+
+
+def carregar_txt_nuvem(slug: str) -> str | None:
+    uid = (usuario_logado() or {}).get("id")
+    if not uid:
+        return None
+    try:
+        sb = _supa()
+        dados = sb.storage.from_("resumos").download(f"{uid}/{slug}.txt")
+        return dados.decode("utf-8")
+    except Exception:
+        return None
 
 
 # ── Extração de conteúdo de URL ───────────────────────────────────────────────
@@ -413,24 +490,65 @@ def _docx_inline(paragraph, texto: str):
             paragraph.add_run(parte)
 
 
-# ── Rotas Flask ───────────────────────────────────────────────────────────────
+# ── Auth ──────────────────────────────────────────────────────────────────────
+@app.route("/entrar", methods=["GET", "POST"])
+def entrar():
+    if usuario_logado():
+        return redirect(url_for("index"))
+    erro = None
+    if request.method == "POST":
+        email = request.form.get("email", "").strip()
+        senha = request.form.get("senha", "")
+        acao  = request.form.get("acao", "login")  # "login" ou "cadastro"
+        try:
+            sb = _supa()
+            if acao == "cadastro":
+                r = sb.auth.sign_up({"email": email, "password": senha})
+                if r.user:
+                    session["usuario"] = {"id": r.user.id, "email": r.user.email,
+                                          "access_token": r.session.access_token,
+                                          "refresh_token": r.session.refresh_token}
+                    return redirect(url_for("index"))
+                erro = "Não foi possível criar a conta."
+            else:
+                r = sb.auth.sign_in_with_password({"email": email, "password": senha})
+                if r.user:
+                    session["usuario"] = {"id": r.user.id, "email": r.user.email,
+                                          "access_token": r.session.access_token,
+                                          "refresh_token": r.session.refresh_token}
+                    return redirect(url_for("index"))
+                erro = "E-mail ou senha incorretos."
+        except Exception as e:
+            msg = str(e)
+            if "Invalid login" in msg or "invalid_credentials" in msg:
+                erro = "E-mail ou senha incorretos."
+            elif "already registered" in msg:
+                erro = "E-mail já cadastrado. Faça login."
+            elif "password" in msg.lower():
+                erro = "A senha deve ter pelo menos 6 caracteres."
+            else:
+                erro = "Erro ao autenticar. Tente novamente."
+    return render_template("auth.html", erro=erro)
+
+
+@app.route("/sair")
+def sair():
+    session.clear()
+    return redirect(url_for("index"))
+
+
+# ── Rotas principais ──────────────────────────────────────────────────────────
 @app.route("/")
 def index():
-    resumos = []
-    pasta = app.config["RESUMOS_FOLDER"]
-    for f in sorted(pasta.glob("*.json"), reverse=True):
-        try:
-            info = json.loads(f.read_text(encoding="utf-8"))
-            resumos.append(info)
-        except Exception:
-            pass
-    return render_template("index.html", resumos=resumos)
+    usuario = usuario_logado()
+    resumos = listar_resumos_nuvem() if usuario else []
+    return render_template("index.html", resumos=resumos, usuario=usuario)
 
 
 @app.route("/upload", methods=["POST"])
 def upload():
     titulo = request.form.get("titulo", "Aula sem título").strip() or "Aula sem título"
-    link = request.form.get("link", "").strip()
+    link   = request.form.get("link", "").strip()
     arquivos = request.files.getlist("arquivos")
 
     sem_arquivos = not arquivos or all(f.filename == "" for f in arquivos)
@@ -438,13 +556,11 @@ def upload():
         return jsonify({"erro": "Envie pelo menos um arquivo ou um link."}), 400
 
     audios, imagens = [], []
-    pasta_upload = app.config["UPLOAD_FOLDER"]
-
     for arq in arquivos:
         if not arq.filename:
             continue
         nome = secure_filename(arq.filename)
-        destino = pasta_upload / nome
+        destino = app.config["UPLOAD_FOLDER"] / nome
         arq.save(str(destino))
         ext = Path(nome).suffix.lower()
         if ext in AUDIO_EXTS:
@@ -452,7 +568,6 @@ def upload():
         elif ext in IMAGE_EXTS:
             imagens.append(str(destino))
 
-    # Processar áudio
     transcricao = ""
     if audios:
         try:
@@ -460,7 +575,6 @@ def upload():
         except Exception as e:
             transcricao = f"[Erro na transcrição: {e}]"
 
-    # Processar imagens
     descricoes = []
     for img in imagens[:4]:
         try:
@@ -468,7 +582,6 @@ def upload():
         except Exception as e:
             descricoes.append(f"[Erro ao descrever imagem: {e}]")
 
-    # Processar link
     conteudo_url, tipo_url = "", ""
     if link:
         try:
@@ -477,45 +590,41 @@ def upload():
             conteudo_url = f"[Erro ao processar link: {e}]"
             tipo_url = "pagina"
 
-    # Gerar resumo
     try:
         resumo_texto = gerar_resumo(transcricao, descricoes, titulo, conteudo_url, tipo_url)
     except Exception as e:
         resumo_texto = f"Erro ao gerar resumo: {e}"
 
-    # Salvar HTML
-    agora = datetime.now()
-    slug = agora.strftime("%Y%m%d_%H%M%S")
+    agora    = datetime.now()
+    slug     = agora.strftime("%Y%m%d_%H%M%S")
     data_hora = agora.strftime("%d/%m/%Y às %H:%M")
-    html_content = resumo_para_html(resumo_texto, titulo, data_hora, len(imagens), bool(audios), tipo_url, slug)
+    meta     = {"titulo": titulo, "slug": slug, "data_hora": data_hora,
+                "n_imagens": len(imagens), "tem_audio": bool(audios), "tipo_url": tipo_url}
 
-    pasta_resumos = app.config["RESUMOS_FOLDER"]
-    html_path = pasta_resumos / f"resumo_{slug}.html"
-    html_path.write_text(html_content, encoding="utf-8")
+    html_content = resumo_para_html(resumo_texto, titulo, data_hora,
+                                    len(imagens), bool(audios), tipo_url, slug)
 
-    meta = {
-        "titulo": titulo,
-        "slug": slug,
-        "data_hora": data_hora,
-        "n_imagens": len(imagens),
-        "tem_audio": bool(audios),
-        "tipo_url": tipo_url,
-        "arquivo": f"resumo_{slug}.html",
-    }
-    (pasta_resumos / f"resumo_{slug}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-    # Salva texto puro para exportar depois em DOCX
-    (pasta_resumos / f"resumo_{slug}.txt").write_text(resumo_texto, encoding="utf-8")
+    # Salva localmente (sempre) + nuvem (se logado)
+    pasta = app.config["RESUMOS_FOLDER"]
+    (pasta / f"resumo_{slug}.html").write_text(html_content, encoding="utf-8")
+    (pasta / f"resumo_{slug}.txt").write_text(resumo_texto, encoding="utf-8")
+    (pasta / f"resumo_{slug}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    salvar_resumo_nuvem(slug, titulo, data_hora, html_content, resumo_texto, meta)
 
     return redirect(url_for("ver_resumo", slug=slug))
 
 
 @app.route("/resumo/<slug>")
 def ver_resumo(slug: str):
+    # Tenta local primeiro, depois nuvem
     pasta = app.config["RESUMOS_FOLDER"]
     html_path = pasta / f"resumo_{slug}.html"
-    if not html_path.exists():
-        return "Resumo não encontrado.", 404
-    return html_path.read_text(encoding="utf-8")
+    if html_path.exists():
+        return html_path.read_text(encoding="utf-8")
+    html = carregar_resumo_nuvem(slug)
+    if html:
+        return html
+    return "Resumo não encontrado.", 404
 
 
 @app.route("/resumo/<slug>/docx")
@@ -526,59 +635,46 @@ def baixar_docx(slug: str):
     from flask import send_file
 
     pasta = app.config["RESUMOS_FOLDER"]
-    txt_path = pasta / f"resumo_{slug}.txt"
+    txt_path  = pasta / f"resumo_{slug}.txt"
     json_path = pasta / f"resumo_{slug}.json"
 
-    if not txt_path.exists():
+    resumo_texto = txt_path.read_text(encoding="utf-8") if txt_path.exists() \
+                   else carregar_txt_nuvem(slug)
+    if not resumo_texto:
         return "Resumo não encontrado.", 404
 
-    resumo_texto = txt_path.read_text(encoding="utf-8")
-    meta = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
-    titulo = meta.get("titulo", "Resumo de Aula")
+    meta      = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
+    titulo    = meta.get("titulo", "Resumo de Aula")
     data_hora = meta.get("data_hora", "")
 
     doc = Document()
-
-    # Título principal
     t = doc.add_heading(titulo, level=0)
     t.runs[0].font.color.rgb = RGBColor(0x4F, 0x46, 0xE5)
-
     if data_hora:
         p = doc.add_paragraph(f"Gerado em {data_hora}")
         p.runs[0].font.size = Pt(9)
         p.runs[0].font.color.rgb = RGBColor(0x9C, 0xA3, 0xAF)
-
     doc.add_paragraph("")
 
     for linha in resumo_texto.split("\n"):
-        stripped = linha.strip()
-        if not stripped:
-            doc.add_paragraph("")
-            continue
-        if stripped.startswith("#### "):
-            doc.add_heading(stripped[5:], level=4)
-        elif stripped.startswith("### "):
-            doc.add_heading(stripped[4:], level=3)
-        elif stripped.startswith("## "):
-            doc.add_heading(stripped[3:], level=2)
-        elif stripped.startswith("# "):
-            doc.add_heading(stripped[2:], level=1)
-        elif stripped.startswith(("- ", "• ", "* ")):
-            p = doc.add_paragraph(style="List Bullet")
-            _docx_inline(p, stripped[2:])
-        elif re.match(r"^\d+[.)]\s", stripped):
-            texto = re.sub(r"^\d+[.)]\s+", "", stripped)
-            p = doc.add_paragraph(style="List Number")
-            _docx_inline(p, texto)
+        s = linha.strip()
+        if not s:
+            doc.add_paragraph(""); continue
+        if s.startswith("#### "):   doc.add_heading(s[5:], level=4)
+        elif s.startswith("### "): doc.add_heading(s[4:], level=3)
+        elif s.startswith("## "):  doc.add_heading(s[3:], level=2)
+        elif s.startswith("# "):   doc.add_heading(s[2:], level=1)
+        elif s.startswith(("- ","• ","* ")):
+            _docx_inline(doc.add_paragraph(style="List Bullet"), s[2:])
+        elif re.match(r"^\d+[.)]\s", s):
+            _docx_inline(doc.add_paragraph(style="List Number"), re.sub(r"^\d+[.)]\s+","",s))
         else:
-            p = doc.add_paragraph()
-            _docx_inline(p, stripped)
+            _docx_inline(doc.add_paragraph(), s)
 
     buf = BytesIO()
-    doc.save(buf)
-    buf.seek(0)
-    nome_arquivo = re.sub(r"[^\w\s-]", "", titulo)[:50].strip() + ".docx"
-    return send_file(buf, as_attachment=True, download_name=nome_arquivo,
+    doc.save(buf); buf.seek(0)
+    nome = re.sub(r"[^\w\s-]", "", titulo)[:50].strip() + ".docx"
+    return send_file(buf, as_attachment=True, download_name=nome,
                      mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 

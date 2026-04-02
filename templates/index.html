@@ -18,11 +18,32 @@
     header {
       background: linear-gradient(135deg, #4f46e5, #7c3aed);
       color: #fff;
-      padding: 2.5rem 1rem;
-      text-align: center;
+      padding: 1.5rem 2rem;
     }
-    header h1 { font-size: 2rem; margin-bottom: .4rem; }
-    header p { opacity: .85; font-size: 1rem; }
+    .header-inner {
+      max-width: 860px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.7rem; margin-bottom: .2rem; }
+    header p { opacity: .85; font-size: .9rem; }
+    .header-auth { display: flex; align-items: center; gap: .75rem; flex-shrink: 0; }
+    .user-email { font-size: .82rem; opacity: .85; }
+    .btn-header {
+      padding: .45rem 1rem;
+      border-radius: 8px;
+      font-size: .85rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    .btn-header:hover { opacity: .85; }
+    .btn-header.entrar { background: rgba(255,255,255,.2); color: #fff; border: 1.5px solid rgba(255,255,255,.4); }
+    .btn-header.sair   { background: rgba(255,255,255,.15); color: #fff; }
 
     /* ── Upload card ── */
     .upload-card {
@@ -225,13 +246,28 @@
       padding: 2rem;
       font-size: .95rem;
     }
+    .cloud-cta { color: #6b7280; }
+    .cloud-cta a { color: #4f46e5; font-weight: 600; text-decoration: none; }
+    .cloud-cta a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>📚 Bot de Resumo de Aulas</h1>
-  <p>Envie áudio e/ou imagens da sua aula e receba um resumo organizado</p>
+  <div class="header-inner">
+    <div>
+      <h1>📚 Resumo de Aulas</h1>
+      <p>Envie áudio, imagens ou links da sua aula e receba um resumo organizado</p>
+    </div>
+    <div class="header-auth">
+      {% if usuario %}
+        <span class="user-email">{{ usuario.email }}</span>
+        <a class="btn-header sair" href="/sair">Sair</a>
+      {% else %}
+        <a class="btn-header entrar" href="/entrar">Entrar / Criar conta</a>
+      {% endif %}
+    </div>
+  </div>
 </header>
 
 <div class="upload-card">
@@ -270,27 +306,35 @@
   </form>
 </div>
 
-{% if resumos %}
-<section class="resumos-section">
-  <h2>📄 Resumos gerados</h2>
-  <div class="grid">
-    {% for r in resumos %}
-    <a class="resumo-card" href="/resumo/{{ r.slug }}" target="_blank">
-      <div class="r-titulo">{{ r.titulo }}</div>
-      <div class="r-data">📅 {{ r.data_hora }}</div>
-      <div class="r-badges">
-        {% if r.tem_audio %}<span class="badge audio">🎵 Áudio</span>{% endif %}
-        {% if r.n_imagens %}<span class="badge imagem">🖼️ {{ r.n_imagens }} imagem(ns)</span>{% endif %}
-        {% if r.tipo_url == 'youtube' %}<span class="badge youtube">▶️ YouTube</span>{% endif %}
-        {% if r.tipo_url == 'pagina' %}<span class="badge link">🔗 Link</span>{% endif %}
-      </div>
-    </a>
-    {% endfor %}
+{% if usuario %}
+  {% if resumos %}
+  <section class="resumos-section">
+    <h2>📄 Meus resumos salvos</h2>
+    <div class="grid">
+      {% for r in resumos %}
+      <a class="resumo-card" href="/resumo/{{ r.slug }}" target="_blank">
+        <div class="r-titulo">{{ r.titulo }}</div>
+        <div class="r-data">📅 {{ r.data_hora }}</div>
+        <div class="r-badges">
+          {% if r.tem_audio %}<span class="badge audio">🎵 Áudio</span>{% endif %}
+          {% if r.n_imagens %}<span class="badge imagem">🖼️ {{ r.n_imagens }} imagem(ns)</span>{% endif %}
+          {% if r.tipo_url == 'youtube' %}<span class="badge youtube">▶️ YouTube</span>{% endif %}
+          {% if r.tipo_url == 'pagina' %}<span class="badge link">🔗 Link</span>{% endif %}
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% else %}
+  <div class="resumos-section">
+    <div class="empty">Nenhum resumo salvo ainda. Gere sua primeira aula acima!</div>
   </div>
-</section>
+  {% endif %}
 {% else %}
 <div class="resumos-section">
-  <div class="empty">Nenhum resumo gerado ainda. Envie sua primeira aula acima!</div>
+  <div class="empty cloud-cta">
+    ☁️ <a href="/entrar">Entre ou crie uma conta grátis</a> para salvar seus resumos na nuvem e acessá-los de qualquer lugar.
+  </div>
 </div>
 {% endif %}
 

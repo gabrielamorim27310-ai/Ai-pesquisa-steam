@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entrar — Resumo de Aulas</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #f0f4f8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 20px;
+      box-shadow: 0 8px 40px rgba(0,0,0,.12);
+      width: 100%;
+      max-width: 420px;
+      overflow: hidden;
+    }
+    .top {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      padding: 2rem 2rem 1.5rem;
+      text-align: center;
+      color: #fff;
+    }
+    .top .logo { font-size: 2.8rem; }
+    .top h1 { font-size: 1.3rem; margin-top: .4rem; }
+    .top p { font-size: .85rem; opacity: .85; margin-top: .3rem; }
+
+    /* Abas */
+    .tabs {
+      display: flex;
+      border-bottom: 2px solid #f3f4f6;
+    }
+    .tab {
+      flex: 1;
+      padding: .9rem;
+      text-align: center;
+      font-size: .9rem;
+      font-weight: 600;
+      color: #9ca3af;
+      cursor: pointer;
+      border: none;
+      background: none;
+      transition: color .15s, border-bottom .15s;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+    }
+    .tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+
+    /* Formulário */
+    .body { padding: 1.8rem; }
+    .form { display: none; flex-direction: column; gap: 1rem; }
+    .form.active { display: flex; }
+
+    label {
+      font-size: .82rem;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: .25rem;
+      display: block;
+    }
+    input[type="email"], input[type="password"] {
+      width: 100%;
+      padding: .7rem 1rem;
+      border: 1.5px solid #d1d5db;
+      border-radius: 9px;
+      font-size: .95rem;
+      transition: border .2s;
+      outline: none;
+    }
+    input:focus { border-color: #4f46e5; }
+
+    .btn-submit {
+      width: 100%;
+      padding: .85rem;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity .2s;
+      margin-top: .4rem;
+    }
+    .btn-submit:hover { opacity: .88; }
+
+    .erro {
+      background: #fee2e2;
+      color: #991b1b;
+      padding: .7rem 1rem;
+      border-radius: 8px;
+      font-size: .85rem;
+    }
+    .voltar {
+      display: block;
+      text-align: center;
+      margin-top: 1.2rem;
+      color: #6b7280;
+      font-size: .85rem;
+      text-decoration: none;
+    }
+    .voltar:hover { color: #4f46e5; }
+    .hint {
+      font-size: .78rem;
+      color: #9ca3af;
+      text-align: center;
+      margin-top: -.3rem;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="top">
+    <div class="logo">📚</div>
+    <h1>Resumo de Aulas</h1>
+    <p>Entre para salvar seus resumos na nuvem</p>
+  </div>
+
+  <div class="tabs">
+    <button class="tab {% if not request.args.get('modo') or request.args.get('modo') == 'login' %}active{% endif %}"
+            onclick="trocarAba('login')">Entrar</button>
+    <button class="tab {% if request.args.get('modo') == 'cadastro' %}active{% endif %}"
+            onclick="trocarAba('cadastro')">Criar conta</button>
+  </div>
+
+  <div class="body">
+    {% if erro %}
+    <div class="erro">{{ erro }}</div>
+    {% endif %}
+
+    <!-- Login -->
+    <form class="form {% if not request.args.get('modo') or request.args.get('modo') == 'login' %}active{% endif %}"
+          id="form-login" method="POST" action="/entrar">
+      <input type="hidden" name="acao" value="login">
+      <div>
+        <label for="email-l">E-mail</label>
+        <input type="email" id="email-l" name="email" placeholder="seu@email.com" required autocomplete="email">
+      </div>
+      <div>
+        <label for="senha-l">Senha</label>
+        <input type="password" id="senha-l" name="senha" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn-submit">Entrar</button>
+      <p class="hint">Não tem conta? <a href="#" onclick="trocarAba('cadastro'); return false;">Cadastre-se grátis</a></p>
+    </form>
+
+    <!-- Cadastro -->
+    <form class="form {% if request.args.get('modo') == 'cadastro' %}active{% endif %}"
+          id="form-cadastro" method="POST" action="/entrar">
+      <input type="hidden" name="acao" value="cadastro">
+      <div>
+        <label for="email-c">E-mail</label>
+        <input type="email" id="email-c" name="email" placeholder="seu@email.com" required autocomplete="email">
+      </div>
+      <div>
+        <label for="senha-c">Senha <span style="color:#9ca3af;font-weight:400">(mín. 6 caracteres)</span></label>
+        <input type="password" id="senha-c" name="senha" placeholder="••••••••" required autocomplete="new-password" minlength="6">
+      </div>
+      <button type="submit" class="btn-submit">Criar conta</button>
+      <p class="hint">Já tem conta? <a href="#" onclick="trocarAba('login'); return false;">Entrar</a></p>
+    </form>
+
+    <a class="voltar" href="/">← Voltar ao site sem entrar</a>
+  </div>
+</div>
+
+<script>
+  function trocarAba(aba) {
+    document.querySelectorAll('.tab').forEach(function(t, i) {
+      t.classList.toggle('active', (i === 0 && aba === 'login') || (i === 1 && aba === 'cadastro'));
+    });
+    document.getElementById('form-login').classList.toggle('active', aba === 'login');
+    document.getElementById('form-cadastro').classList.toggle('active', aba === 'cadastro');
+  }
+  {% if erro and request.form.get('acao') == 'cadastro' %}
+  trocarAba('cadastro');
+  {% endif %}
+</script>
+</body>
+</html>
