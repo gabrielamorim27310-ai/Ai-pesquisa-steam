@@ -491,6 +491,51 @@ def _docx_inline(paragraph, texto: str):
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
+@app.route("/auth/google")
+def auth_google():
+    try:
+        sb = _supa()
+        r = sb.auth.sign_in_with_oauth({
+            "provider": "google",
+            "options": {
+                "redirect_to": request.host_url.rstrip("/") + "/auth/callback"
+            }
+        })
+        return redirect(r.url)
+    except Exception as e:
+        flash(f"Erro ao iniciar login com Google: {e}", "erro")
+        return redirect(url_for("entrar"))
+
+
+@app.route("/auth/callback")
+def auth_callback():
+    """Página que extrai o token do fragment (#) via JS e envia ao servidor."""
+    return render_template("auth_callback.html")
+
+
+@app.route("/auth/session", methods=["POST"])
+def auth_session():
+    """Recebe access_token + refresh_token do JS e cria a sessão Flask."""
+    data = request.get_json(force=True) or {}
+    access_token  = data.get("access_token", "")
+    refresh_token = data.get("refresh_token", "")
+    if not access_token:
+        return jsonify({"ok": False}), 400
+    try:
+        sb = _supa()
+        r = sb.auth.set_session(access_token, refresh_token)
+        user = r.user
+        session["usuario"] = {
+            "id":            user.id,
+            "email":         user.email,
+            "access_token":  access_token,
+            "refresh_token": refresh_token,
+        }
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)}), 400
+
+
 @app.route("/entrar", methods=["GET", "POST"])
 def entrar():
     if usuario_logado():
