@@ -297,11 +297,38 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
     }}
     .footer {{
       text-align: center;
-      padding: 1rem;
+      padding: 1.2rem;
       font-size: .78rem;
       color: #9ca3af;
       border-top: 1px solid #f3f4f6;
     }}
+    /* Barra de ações */
+    .actions {{
+      display: flex;
+      gap: .75rem;
+      padding: 1.2rem 2.5rem;
+      background: #fafafa;
+      border-top: 1px solid #f3f4f6;
+      flex-wrap: wrap;
+    }}
+    .btn {{
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .6rem 1.2rem;
+      border-radius: 8px;
+      font-size: .88rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: opacity .15s, transform .1s;
+    }}
+    .btn:hover {{ opacity: .88; transform: translateY(-1px); }}
+    .btn-primary {{ background: linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff; }}
+    .btn-secondary {{ background: #f3f4f6; color: #374151; }}
+    .btn-green {{ background: #d1fae5; color: #065f46; }}
+    #copy-msg {{ font-size:.8rem; color:#059669; display:none; align-self:center; }}
   </style>
 </head>
 <body>
@@ -311,11 +338,42 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
       <div class="meta">Resumo gerado em {data_hora}</div>
       <div class="badges">{' '.join(fontes)}</div>
     </div>
-    <div class="body">
+    <div class="body" id="resumo-body">
     {corpo}
     </div>
+
+    <!-- Barra de ações -->
+    <div class="actions">
+      <button class="btn btn-primary" onclick="baixarHTML()">⬇️ Baixar HTML</button>
+      <button class="btn btn-green" onclick="copiarTexto()">📋 Copiar texto</button>
+      <a class="btn btn-secondary" href="javascript:window.print()">🖨️ Imprimir</a>
+      <a class="btn btn-secondary" href="/">← Voltar</a>
+      <span id="copy-msg">Copiado!</span>
+    </div>
+
     <div class="footer">Gerado automaticamente pelo Bot de Resumo de Aulas</div>
   </div>
+
+  <script>
+    function baixarHTML() {{
+      var html = document.documentElement.outerHTML;
+      var blob = new Blob([html], {{type: 'text/html;charset=utf-8'}});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '{titulo.replace("'", "").replace('"', '')}.html';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }}
+    function copiarTexto() {{
+      var el = document.getElementById('resumo-body');
+      var texto = el.innerText || el.textContent;
+      navigator.clipboard.writeText(texto).then(function() {{
+        var msg = document.getElementById('copy-msg');
+        msg.style.display = 'inline';
+        setTimeout(function() {{ msg.style.display = 'none'; }}, 2000);
+      }});
+    }}
+  </script>
 </body>
 </html>"""
 
