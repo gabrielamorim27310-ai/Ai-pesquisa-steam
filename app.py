@@ -355,135 +355,149 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
 
     fontes = []
     if tem_audio:
-        fontes.append('<span class="badge audio">🎵 Áudio</span>')
+        fontes.append('<span class="badge audio">Audio</span>')
     if n_imagens:
-        fontes.append(f'<span class="badge imagem">🖼️ {n_imagens} imagem(ns)</span>')
+        fontes.append(f'<span class="badge imagem">{n_imagens} imagem(ns)</span>')
     if tipo_url == "youtube":
-        fontes.append('<span class="badge youtube">▶️ YouTube</span>')
+        fontes.append('<span class="badge youtube">YouTube</span>')
     elif tipo_url == "pagina":
-        fontes.append('<span class="badge link">🔗 Link</span>')
+        fontes.append('<span class="badge link">Link</span>')
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{titulo} — Resumo de Aula</title>
+  <title>{titulo} &mdash; Resumo Acad&ecirc;mico</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #f0f4f8;
-      color: #1a202c;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #f8f9fb;
+      color: #1e293b;
       padding: 2rem 1rem;
+      line-height: 1.7;
     }}
     .card {{
       max-width: 820px;
       margin: 0 auto;
       background: #fff;
-      border-radius: 16px;
-      box-shadow: 0 4px 24px rgba(0,0,0,.1);
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06);
       overflow: hidden;
+      border: 1px solid #e2e8f0;
     }}
     .header {{
-      background: linear-gradient(135deg, #4f46e5, #7c3aed);
-      color: #fff;
-      padding: 2rem 2.5rem;
+      background: #0f172a;
+      color: #f1f5f9;
+      padding: 2.2rem 2.5rem;
+      border-bottom: 3px solid #1e40af;
     }}
-    .header h1 {{ font-size: 1.8rem; margin-bottom: .5rem; }}
-    .meta {{ font-size: .85rem; opacity: .85; margin-top: .4rem; }}
-    .badges {{ display: flex; gap: .5rem; margin-top: 1rem; flex-wrap: wrap; }}
+    .header h1 {{
+      font-family: 'Merriweather', Georgia, serif;
+      font-size: 1.6rem;
+      margin-bottom: .4rem;
+      font-weight: 700;
+      line-height: 1.35;
+    }}
+    .meta {{ font-size: .82rem; opacity: .6; margin-top: .3rem; }}
+    .badges {{ display: flex; gap: .4rem; margin-top: 1rem; flex-wrap: wrap; }}
     .badge {{
-      font-size: .78rem;
-      padding: .25rem .7rem;
-      border-radius: 999px;
+      font-size: .72rem;
+      padding: .2rem .6rem;
+      border-radius: 4px;
       font-weight: 600;
+      letter-spacing: .02em;
     }}
-    .badge.audio {{ background: #fef3c7; color: #92400e; }}
-    .badge.imagem {{ background: #dbeafe; color: #1e40af; }}
-    .badge.youtube {{ background: #fee2e2; color: #991b1b; }}
-    .badge.link {{ background: #d1fae5; color: #065f46; }}
-    .body {{ padding: 2rem 2.5rem; line-height: 1.75; }}
+    .badge.audio {{ background: rgba(251,191,36,.15); color: #f59e0b; }}
+    .badge.imagem {{ background: rgba(59,130,246,.15); color: #3b82f6; }}
+    .badge.youtube {{ background: rgba(239,68,68,.15); color: #ef4444; }}
+    .badge.link {{ background: rgba(34,197,94,.15); color: #22c55e; }}
+    .body {{ padding: 2.2rem 2.5rem; line-height: 1.8; }}
     h2 {{
-      font-size: 1.2rem;
-      color: #4f46e5;
-      margin: 1.8rem 0 .6rem;
-      border-left: 4px solid #4f46e5;
+      font-family: 'Merriweather', Georgia, serif;
+      font-size: 1.15rem;
+      color: #0f172a;
+      margin: 2rem 0 .6rem;
+      border-left: 3px solid #1e40af;
       padding-left: .75rem;
+      font-weight: 700;
     }}
     h3 {{
-      font-size: 1.05rem;
-      color: #374151;
-      margin: 1.2rem 0 .4rem;
-    }}
-    p {{ margin: .5rem 0; color: #374151; }}
-    strong {{ color: #1a202c; }}
-    h4 {{
+      font-family: 'Merriweather', Georgia, serif;
       font-size: 1rem;
-      color: #6d28d9;
-      margin: 1rem 0 .3rem;
+      color: #334155;
+      margin: 1.3rem 0 .4rem;
+      font-weight: 700;
     }}
+    h4 {{
+      font-size: .95rem;
+      color: #475569;
+      margin: 1rem 0 .3rem;
+      font-weight: 600;
+    }}
+    p {{ margin: .5rem 0; color: #334155; }}
+    strong {{ color: #0f172a; }}
     code {{
-      background: #f3f4f6;
-      padding: .1rem .35rem;
+      background: #f1f5f9;
+      padding: .15rem .4rem;
       border-radius: 4px;
-      font-size: .88em;
-      color: #7c3aed;
+      font-size: .86em;
+      color: #1e40af;
     }}
     li {{
-      margin: .4rem 0 .4rem 1.5rem;
-      color: #374151;
+      margin: .35rem 0 .35rem 1.5rem;
+      color: #334155;
     }}
     .footer {{
       text-align: center;
       padding: 1.2rem;
-      font-size: .78rem;
-      color: #9ca3af;
-      border-top: 1px solid #f3f4f6;
+      font-size: .75rem;
+      color: #94a3b8;
+      border-top: 1px solid #e2e8f0;
     }}
-    /* Print / PDF */
     @media print {{
       body {{ background: #fff; padding: 0; }}
-      .card {{ box-shadow: none; border-radius: 0; }}
+      .card {{ box-shadow: none; border-radius: 0; border: none; }}
       .actions {{ display: none !important; }}
       .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }}
-      .ilustracoes {{ break-inside: avoid; }}
       h2 {{ break-after: avoid; }}
     }}
-    /* Barra de ações */
     .actions {{
       display: flex;
-      gap: .75rem;
+      gap: .6rem;
       padding: 1.2rem 2.5rem;
-      background: #fafafa;
-      border-top: 1px solid #f3f4f6;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
       flex-wrap: wrap;
     }}
     .btn {{
       display: inline-flex;
       align-items: center;
-      gap: .4rem;
-      padding: .6rem 1.2rem;
-      border-radius: 8px;
-      font-size: .88rem;
+      gap: .35rem;
+      padding: .55rem 1.1rem;
+      border-radius: 6px;
+      font-size: .84rem;
       font-weight: 600;
       cursor: pointer;
       border: none;
       text-decoration: none;
-      transition: opacity .15s, transform .1s;
+      transition: all .15s;
+      font-family: 'Inter', system-ui, sans-serif;
     }}
-    .btn:hover {{ opacity: .88; transform: translateY(-1px); }}
-    .btn-primary {{ background: linear-gradient(135deg,#4f46e5,#7c3aed); color:#fff; }}
-    .btn-secondary {{ background: #f3f4f6; color: #374151; }}
-    .btn-green {{ background: #d1fae5; color: #065f46; }}
-    #copy-msg {{ font-size:.8rem; color:#059669; display:none; align-self:center; }}
+    .btn:hover {{ opacity: .85; }}
+    .btn-primary {{ background: #0f172a; color:#fff; }}
+    .btn-secondary {{ background: #f1f5f9; color: #334155; border: 1px solid #e2e8f0; }}
+    .btn-green {{ background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }}
+    #copy-msg {{ font-size:.78rem; color:#166534; display:none; align-self:center; }}
   </style>
 </head>
 <body>
   <div class="card">
     <div class="header">
-      <h1>📚 {titulo}</h1>
+      <h1>{titulo}</h1>
       <div class="meta">Resumo gerado em {data_hora}</div>
       <div class="badges">{' '.join(fontes)}</div>
     </div>
@@ -491,17 +505,16 @@ def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
     {corpo}
     </div>
 
-    <!-- Barra de ações -->
     <div class="actions">
-      <button class="btn btn-primary" onclick="baixarHTML()">⬇️ Baixar HTML</button>
-      <a class="btn btn-primary" href="{slug_placeholder}/docx" download>📄 Baixar DOCX</a>
-      <button class="btn btn-green" onclick="copiarTexto()">📋 Copiar texto</button>
-      <button class="btn btn-secondary" onclick="window.print()">🖨️ Salvar PDF</button>
-      <a class="btn btn-secondary" href="/">← Voltar</a>
+      <button class="btn btn-primary" onclick="baixarHTML()">Baixar HTML</button>
+      <a class="btn btn-primary" href="{slug_placeholder}/docx" download>Baixar DOCX</a>
+      <button class="btn btn-green" onclick="copiarTexto()">Copiar texto</button>
+      <button class="btn btn-secondary" onclick="window.print()">Salvar PDF</button>
+      <a class="btn btn-secondary" href="/">&larr; Voltar</a>
       <span id="copy-msg">Copiado!</span>
     </div>
 
-    <div class="footer">Gerado automaticamente pelo Bot de Resumo de Aulas</div>
+    <div class="footer">Resumo Acad&ecirc;mico &mdash; Gerado automaticamente com intelig&ecirc;ncia artificial</div>
   </div>
 
   <script>

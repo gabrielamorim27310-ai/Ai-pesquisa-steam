@@ -3,13 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Entrar — Resumo de Aulas</title>
+  <title>Entrar &mdash; Resumo Acad&ecirc;mico</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #f0f4f8;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #f8f9fb;
       min-height: 100vh;
       display: flex;
       align-items: center;
@@ -18,103 +19,123 @@
     }
     .card {
       background: #fff;
-      border-radius: 20px;
-      box-shadow: 0 8px 40px rgba(0,0,0,.12);
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 32px rgba(0,0,0,.08);
       width: 100%;
       max-width: 420px;
       overflow: hidden;
+      border: 1px solid #e2e8f0;
     }
     .top {
-      background: linear-gradient(135deg, #4f46e5, #7c3aed);
-      padding: 2rem 2rem 1.5rem;
+      background: #0f172a;
+      padding: 2rem 2rem 1.6rem;
       text-align: center;
-      color: #fff;
+      color: #f1f5f9;
+      border-bottom: 3px solid #1e40af;
     }
-    .top .logo { font-size: 2.8rem; }
-    .top h1 { font-size: 1.3rem; margin-top: .4rem; }
-    .top p { font-size: .85rem; opacity: .85; margin-top: .3rem; }
+    .top .logo {
+      width: 52px; height: 52px;
+      background: #1e40af;
+      border-radius: 12px;
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-bottom: .6rem;
+    }
+    .top h1 {
+      font-family: 'Merriweather', Georgia, serif;
+      font-size: 1.25rem;
+      margin-top: .2rem;
+    }
+    .top p { font-size: .84rem; opacity: .65; margin-top: .3rem; }
 
-    /* Abas */
+    /* Tabs */
     .tabs {
       display: flex;
-      border-bottom: 2px solid #f3f4f6;
+      border-bottom: 1px solid #e2e8f0;
     }
     .tab {
       flex: 1;
-      padding: .9rem;
+      padding: .85rem;
       text-align: center;
-      font-size: .9rem;
+      font-size: .88rem;
       font-weight: 600;
-      color: #9ca3af;
+      color: #94a3b8;
       cursor: pointer;
       border: none;
       background: none;
-      transition: color .15s, border-bottom .15s;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
+      transition: color .15s;
+      border-bottom: 2.5px solid transparent;
+      margin-bottom: -1px;
     }
-    .tab.active { color: #4f46e5; border-bottom-color: #4f46e5; }
+    .tab.active { color: #0f172a; border-bottom-color: #1e40af; }
 
-    /* Formulário */
+    /* Form */
     .body { padding: 1.8rem; }
     .form { display: none; flex-direction: column; gap: 1rem; }
     .form.active { display: flex; }
 
     label {
-      font-size: .82rem;
+      font-size: .8rem;
       font-weight: 600;
-      color: #374151;
+      color: #334155;
       margin-bottom: .25rem;
       display: block;
+      text-transform: uppercase;
+      letter-spacing: .04em;
     }
     input[type="email"], input[type="password"] {
       width: 100%;
       padding: .7rem 1rem;
-      border: 1.5px solid #d1d5db;
-      border-radius: 9px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
       font-size: .95rem;
-      transition: border .2s;
+      transition: border .2s, box-shadow .2s;
       outline: none;
+      font-family: inherit;
     }
-    input:focus { border-color: #4f46e5; }
+    input:focus { border-color: #1e40af; box-shadow: 0 0 0 3px rgba(30,64,175,.1); }
 
     .btn-submit {
       width: 100%;
       padding: .85rem;
-      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      background: #0f172a;
       color: #fff;
       border: none;
-      border-radius: 10px;
-      font-size: 1rem;
+      border-radius: 8px;
+      font-size: .95rem;
       font-weight: 700;
       cursor: pointer;
-      transition: opacity .2s;
-      margin-top: .4rem;
+      transition: background .2s;
+      margin-top: .3rem;
+      font-family: inherit;
     }
-    .btn-submit:hover { opacity: .88; }
+    .btn-submit:hover { background: #1e293b; }
 
     .erro {
-      background: #fee2e2;
+      background: #fef2f2;
       color: #991b1b;
       padding: .7rem 1rem;
-      border-radius: 8px;
+      border-radius: 6px;
       font-size: .85rem;
+      border-left: 4px solid #ef4444;
     }
     .voltar {
       display: block;
       text-align: center;
       margin-top: 1.2rem;
-      color: #6b7280;
-      font-size: .85rem;
+      color: #64748b;
+      font-size: .84rem;
       text-decoration: none;
     }
-    .voltar:hover { color: #4f46e5; }
+    .voltar:hover { color: #1e40af; }
     .hint {
       font-size: .78rem;
-      color: #9ca3af;
+      color: #94a3b8;
       text-align: center;
       margin-top: -.3rem;
     }
+    .hint a { color: #1e40af; text-decoration: none; font-weight: 600; }
+    .hint a:hover { text-decoration: underline; }
+
     /* Google SSO */
     .btn-google {
       display: flex;
@@ -124,36 +145,43 @@
       width: 100%;
       padding: .75rem;
       background: #fff;
-      border: 1.5px solid #d1d5db;
-      border-radius: 10px;
-      font-size: .95rem;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: .93rem;
       font-weight: 600;
-      color: #374151;
+      color: #334155;
       cursor: pointer;
       text-decoration: none;
       transition: background .15s, box-shadow .15s;
       margin-bottom: .2rem;
+      font-family: inherit;
     }
-    .btn-google:hover { background: #f9fafb; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+    .btn-google:hover { background: #f8fafc; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
     .btn-google svg { flex-shrink: 0; }
     .separador {
       display: flex;
       align-items: center;
       gap: .6rem;
-      color: #9ca3af;
-      font-size: .8rem;
+      color: #94a3b8;
+      font-size: .78rem;
       margin: .8rem 0;
+      text-transform: uppercase;
+      letter-spacing: .04em;
     }
     .separador::before, .separador::after {
-      content: ''; flex: 1; height: 1px; background: #e5e7eb;
+      content: ''; flex: 1; height: 1px; background: #e2e8f0;
     }
   </style>
 </head>
 <body>
 <div class="card">
   <div class="top">
-    <div class="logo">📚</div>
-    <h1>Resumo de Aulas</h1>
+    <div class="logo">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+    </div>
+    <h1>Resumo Acad&ecirc;mico</h1>
     <p>Entre para salvar seus resumos na nuvem</p>
   </div>
 
@@ -169,7 +197,6 @@
     <div class="erro">{{ erro }}</div>
     {% endif %}
 
-    <!-- Botão Google SSO -->
     <a class="btn-google" href="/auth/google">
       <svg width="20" height="20" viewBox="0 0 48 48">
         <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -193,10 +220,10 @@
       </div>
       <div>
         <label for="senha-l">Senha</label>
-        <input type="password" id="senha-l" name="senha" placeholder="••••••••" required autocomplete="current-password">
+        <input type="password" id="senha-l" name="senha" placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;" required autocomplete="current-password">
       </div>
       <button type="submit" class="btn-submit">Entrar</button>
-      <p class="hint">Não tem conta? <a href="#" onclick="trocarAba('cadastro'); return false;">Cadastre-se grátis</a></p>
+      <p class="hint">N&atilde;o tem conta? <a href="#" onclick="trocarAba('cadastro'); return false;">Cadastre-se</a></p>
     </form>
 
     <!-- Cadastro -->
@@ -209,14 +236,14 @@
         <input type="email" id="email-c" name="email" placeholder="seu@email.com" required autocomplete="email">
       </div>
       <div>
-        <label for="senha-c">Senha <span style="color:#9ca3af;font-weight:400">(mín. 6 caracteres)</span></label>
-        <input type="password" id="senha-c" name="senha" placeholder="••••••••" required autocomplete="new-password" minlength="6">
+        <label for="senha-c">Senha <span style="color:#94a3b8;font-weight:400;text-transform:none;letter-spacing:0">(min. 6 caracteres)</span></label>
+        <input type="password" id="senha-c" name="senha" placeholder="&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;" required autocomplete="new-password" minlength="6">
       </div>
       <button type="submit" class="btn-submit">Criar conta</button>
-      <p class="hint">Já tem conta? <a href="#" onclick="trocarAba('login'); return false;">Entrar</a></p>
+      <p class="hint">J&aacute; tem conta? <a href="#" onclick="trocarAba('login'); return false;">Entrar</a></p>
     </form>
 
-    <a class="voltar" href="/">← Voltar ao site sem entrar</a>
+    <a class="voltar" href="/">&larr; Voltar ao site</a>
   </div>
 </div>
 

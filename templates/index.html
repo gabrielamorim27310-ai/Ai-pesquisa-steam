@@ -3,193 +3,230 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Bot de Resumo de Aulas</title>
+  <title>Resumo Acad&ecirc;mico &mdash; Assistente de Estudos</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #f0f4f8;
-      color: #1a202c;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #f8f9fb;
+      color: #1e293b;
       min-height: 100vh;
     }
 
     /* ── Header ── */
     header {
-      background: linear-gradient(135deg, #4f46e5, #7c3aed);
-      color: #fff;
-      padding: 1.5rem 2rem;
+      background: #0f172a;
+      color: #f1f5f9;
+      padding: 0;
+      border-bottom: 3px solid #1e40af;
     }
     .header-inner {
-      max-width: 860px;
+      max-width: 920px;
       margin: 0 auto;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
       flex-wrap: wrap;
+      padding: 1.4rem 2rem;
     }
-    header h1 { font-size: 1.7rem; margin-bottom: .2rem; }
-    header p { opacity: .85; font-size: .9rem; }
+    .header-brand { display: flex; align-items: center; gap: .75rem; }
+    .header-logo {
+      width: 42px; height: 42px;
+      background: #1e40af;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem;
+    }
+    header h1 {
+      font-family: 'Merriweather', Georgia, serif;
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+    header p { opacity: .65; font-size: .82rem; margin-top: .15rem; font-weight: 400; }
     .header-auth { display: flex; align-items: center; gap: .75rem; flex-shrink: 0; }
-    .user-email { font-size: .82rem; opacity: .85; }
+    .user-email { font-size: .8rem; opacity: .7; }
     .btn-header {
-      padding: .45rem 1rem;
-      border-radius: 8px;
-      font-size: .85rem;
+      padding: .45rem 1.1rem;
+      border-radius: 6px;
+      font-size: .82rem;
       font-weight: 600;
       text-decoration: none;
-      transition: opacity .15s;
+      transition: all .15s;
+      border: 1.5px solid rgba(255,255,255,.2);
+      color: #e2e8f0;
     }
-    .btn-header:hover { opacity: .85; }
-    .btn-header.entrar { background: rgba(255,255,255,.2); color: #fff; border: 1.5px solid rgba(255,255,255,.4); }
-    .btn-header.sair   { background: rgba(255,255,255,.15); color: #fff; }
+    .btn-header:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.35); }
+    .btn-header.entrar { background: #1e40af; border-color: #1e40af; color: #fff; }
+    .btn-header.entrar:hover { background: #1d4ed8; }
 
     /* ── Upload card ── */
     .upload-card {
-      max-width: 640px;
-      margin: 2rem auto;
+      max-width: 660px;
+      margin: 2.5rem auto 2rem;
       background: #fff;
-      border-radius: 16px;
-      box-shadow: 0 4px 24px rgba(0,0,0,.12);
-      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06);
+      padding: 2rem 2.2rem;
+      border: 1px solid #e2e8f0;
     }
     .upload-card h2 {
+      font-family: 'Merriweather', Georgia, serif;
       font-size: 1.15rem;
-      color: #4f46e5;
-      margin-bottom: 1.2rem;
+      color: #0f172a;
+      margin-bottom: .3rem;
+      font-weight: 700;
+    }
+    .upload-subtitle {
+      font-size: .84rem;
+      color: #64748b;
+      margin-bottom: 1.5rem;
     }
     label.field {
       display: block;
-      font-size: .88rem;
+      font-size: .82rem;
       font-weight: 600;
-      color: #374151;
-      margin-bottom: .3rem;
+      color: #334155;
+      margin-bottom: .35rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
     }
     input[type="text"] {
       width: 100%;
-      padding: .65rem 1rem;
-      border: 1.5px solid #d1d5db;
+      padding: .7rem 1rem;
+      border: 1.5px solid #cbd5e1;
       border-radius: 8px;
       font-size: .95rem;
-      margin-bottom: 1.2rem;
-      transition: border .2s;
+      margin-bottom: 1.3rem;
+      transition: border .2s, box-shadow .2s;
+      font-family: inherit;
     }
     input[type="text"]:focus {
       outline: none;
-      border-color: #4f46e5;
+      border-color: #1e40af;
+      box-shadow: 0 0 0 3px rgba(30,64,175,.1);
     }
 
     /* Link input */
     .link-input-wrap {
       display: flex;
       align-items: center;
-      border: 1.5px solid #d1d5db;
+      border: 1.5px solid #cbd5e1;
       border-radius: 8px;
       overflow: hidden;
-      margin-bottom: 1.2rem;
-      transition: border .2s;
+      margin-bottom: 1.3rem;
+      transition: border .2s, box-shadow .2s;
     }
-    .link-input-wrap:focus-within { border-color: #4f46e5; }
+    .link-input-wrap:focus-within { border-color: #1e40af; box-shadow: 0 0 0 3px rgba(30,64,175,.1); }
     .link-icon {
-      padding: 0 .75rem;
-      font-size: 1.1rem;
-      background: #f9fafb;
-      border-right: 1.5px solid #d1d5db;
-      height: 100%;
+      padding: 0 .8rem;
+      font-size: .9rem;
+      background: #f1f5f9;
+      border-right: 1.5px solid #cbd5e1;
       display: flex;
       align-items: center;
       align-self: stretch;
+      color: #64748b;
     }
     .link-input-wrap input[type="url"] {
       flex: 1;
       border: none;
-      padding: .65rem .75rem;
+      padding: .7rem .8rem;
       font-size: .93rem;
       outline: none;
-      margin-bottom: 0;
+      font-family: inherit;
     }
+
     /* Divider */
     .ou-divider {
       display: flex;
       align-items: center;
       gap: .75rem;
-      margin: .5rem 0 1.2rem;
-      color: #9ca3af;
-      font-size: .82rem;
+      margin: .3rem 0 1.3rem;
+      color: #94a3b8;
+      font-size: .78rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
     }
     .ou-divider::before, .ou-divider::after {
       content: '';
       flex: 1;
       height: 1px;
-      background: #e5e7eb;
+      background: #e2e8f0;
     }
 
     /* Drop zone */
     .drop-zone {
-      border: 2.5px dashed #c4b5fd;
-      border-radius: 12px;
+      border: 2px dashed #94a3b8;
+      border-radius: 10px;
       padding: 2rem;
       text-align: center;
       cursor: pointer;
-      background: #faf5ff;
+      background: #f8fafc;
       transition: background .2s, border-color .2s;
-      margin-bottom: 1.2rem;
+      margin-bottom: 1.3rem;
     }
     .drop-zone.dragover {
-      background: #ede9fe;
-      border-color: #7c3aed;
+      background: #eff6ff;
+      border-color: #1e40af;
     }
-    .drop-zone .icon { font-size: 2.5rem; }
-    .drop-zone p { margin-top: .5rem; color: #6b7280; font-size: .9rem; }
-    .drop-zone span { color: #4f46e5; font-weight: 600; cursor: pointer; }
+    .drop-zone .icon { font-size: 2rem; color: #64748b; }
+    .drop-zone p { margin-top: .5rem; color: #64748b; font-size: .88rem; }
+    .drop-zone span { color: #1e40af; font-weight: 600; cursor: pointer; }
+    .drop-zone .formats { font-size: .75rem; margin-top: .3rem; color: #94a3b8; }
     input[type="file"] { display: none; }
 
     /* File list */
-    #file-list { margin-bottom: 1.2rem; }
+    #file-list { margin-bottom: 1.3rem; }
     .file-item {
       display: flex;
       align-items: center;
       gap: .5rem;
-      padding: .45rem .7rem;
-      background: #f9fafb;
-      border-radius: 8px;
-      font-size: .85rem;
+      padding: .5rem .75rem;
+      background: #f1f5f9;
+      border-radius: 6px;
+      font-size: .84rem;
       margin-bottom: .3rem;
+      border: 1px solid #e2e8f0;
     }
-    .file-item .icon-f { font-size: 1.1rem; }
-    .file-item .name { flex: 1; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .file-item .size { color: #9ca3af; font-size: .78rem; }
+    .file-item .icon-f { font-size: 1rem; }
+    .file-item .name { flex: 1; color: #334155; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-item .size { color: #94a3b8; font-size: .76rem; }
 
     /* Button */
     button[type="submit"] {
       width: 100%;
       padding: .85rem;
-      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      background: #0f172a;
       color: #fff;
       border: none;
-      border-radius: 10px;
-      font-size: 1rem;
+      border-radius: 8px;
+      font-size: .95rem;
       font-weight: 700;
       cursor: pointer;
-      transition: opacity .2s;
+      transition: background .2s;
+      font-family: inherit;
+      letter-spacing: .01em;
     }
-    button[type="submit"]:hover { opacity: .9; }
-    button[type="submit"]:disabled { opacity: .6; cursor: not-allowed; }
+    button[type="submit"]:hover { background: #1e293b; }
+    button[type="submit"]:disabled { opacity: .5; cursor: not-allowed; }
 
     /* Loading */
     #loading {
       display: none;
       text-align: center;
       margin-top: 1rem;
-      color: #6b7280;
-      font-size: .9rem;
+      color: #64748b;
+      font-size: .88rem;
     }
     .spinner {
       display: inline-block;
-      width: 22px; height: 22px;
-      border: 3px solid #e5e7eb;
-      border-top-color: #7c3aed;
+      width: 20px; height: 20px;
+      border: 2.5px solid #e2e8f0;
+      border-top-color: #1e40af;
       border-radius: 50%;
       animation: spin .7s linear infinite;
       vertical-align: middle;
@@ -199,49 +236,61 @@
 
     /* ── Resumos section ── */
     .resumos-section {
-      max-width: 860px;
+      max-width: 920px;
       margin: 0 auto 4rem;
-      padding: 0 1rem;
+      padding: 0 1.5rem;
     }
     .resumos-section h2 {
-      font-size: 1.2rem;
-      color: #374151;
-      margin-bottom: 1rem;
+      font-family: 'Merriweather', Georgia, serif;
+      font-size: 1.15rem;
+      color: #0f172a;
+      margin-bottom: 1.2rem;
+      padding-bottom: .6rem;
+      border-bottom: 2px solid #e2e8f0;
     }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
       gap: 1rem;
     }
+    .resumo-card-wrap { position: relative; }
     .resumo-card {
       background: #fff;
-      border-radius: 12px;
-      padding: 1.3rem;
-      box-shadow: 0 2px 12px rgba(0,0,0,.08);
+      border-radius: 10px;
+      padding: 1.3rem 1.4rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.04);
       text-decoration: none;
       color: inherit;
       transition: transform .15s, box-shadow .15s;
       display: flex;
       flex-direction: column;
       gap: .5rem;
+      border: 1px solid #e2e8f0;
+      border-left: 4px solid #1e40af;
     }
-    .resumo-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,.13); }
-    .resumo-card-wrap { position: relative; }
-    .delete-form { position: absolute; top: .6rem; right: .6rem; }
+    .resumo-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+    .delete-form { position: absolute; top: .6rem; right: .6rem; z-index: 2; }
     .btn-delete {
       background: none; border: none; cursor: pointer;
-      font-size: 1.1rem; opacity: .4; transition: opacity .15s;
-      padding: .2rem .4rem; border-radius: 6px;
+      font-size: .95rem; opacity: .3; transition: opacity .15s;
+      padding: .25rem .4rem; border-radius: 4px;
     }
-    .btn-delete:hover { opacity: 1; background: #fee2e2; }
-    .resumo-card .r-titulo { font-weight: 700; font-size: 1rem; color: #1a202c; }
-    .resumo-card .r-data { font-size: .8rem; color: #9ca3af; }
-    .resumo-card .r-badges { display: flex; gap: .4rem; flex-wrap: wrap; }
+    .btn-delete:hover { opacity: .8; background: #fee2e2; }
+    .resumo-card .r-titulo {
+      font-family: 'Merriweather', Georgia, serif;
+      font-weight: 700;
+      font-size: .95rem;
+      color: #0f172a;
+      line-height: 1.4;
+    }
+    .resumo-card .r-data { font-size: .78rem; color: #94a3b8; }
+    .resumo-card .r-badges { display: flex; gap: .35rem; flex-wrap: wrap; }
     .badge {
-      font-size: .72rem;
-      padding: .2rem .6rem;
-      border-radius: 999px;
+      font-size: .7rem;
+      padding: .18rem .55rem;
+      border-radius: 4px;
       font-weight: 600;
+      letter-spacing: .02em;
     }
     .badge.audio { background: #fef3c7; color: #92400e; }
     .badge.imagem { background: #dbeafe; color: #1e40af; }
@@ -250,38 +299,57 @@
 
     .empty {
       text-align: center;
-      color: #9ca3af;
-      padding: 2rem;
-      font-size: .95rem;
+      color: #94a3b8;
+      padding: 2.5rem;
+      font-size: .92rem;
     }
-    .cloud-cta { color: #6b7280; }
-    .cloud-cta a { color: #4f46e5; font-weight: 600; text-decoration: none; }
+    .cloud-cta { color: #64748b; }
+    .cloud-cta a { color: #1e40af; font-weight: 600; text-decoration: none; }
     .cloud-cta a:hover { text-decoration: underline; }
+
     .flash-msg {
       padding: .75rem 1rem;
-      border-radius: 8px;
-      font-size: .88rem;
-      margin-bottom: 1rem;
+      border-radius: 6px;
+      font-size: .85rem;
+      margin-bottom: 1.2rem;
+      border-left: 4px solid;
     }
-    .flash-aviso { background: #fef3c7; color: #92400e; }
-    .flash-erro { background: #fee2e2; color: #991b1b; }
-    .flash-sucesso { background: #d1fae5; color: #065f46; }
+    .flash-aviso { background: #fffbeb; color: #92400e; border-color: #f59e0b; }
+    .flash-erro { background: #fef2f2; color: #991b1b; border-color: #ef4444; }
+    .flash-sucesso { background: #f0fdf4; color: #166534; border-color: #22c55e; }
+
+    /* Footer */
+    .site-footer {
+      text-align: center;
+      padding: 1.5rem;
+      color: #94a3b8;
+      font-size: .75rem;
+      border-top: 1px solid #e2e8f0;
+      margin-top: 2rem;
+    }
   </style>
 </head>
 <body>
 
 <header>
   <div class="header-inner">
-    <div>
-      <h1>📚 Resumo de Aulas</h1>
-      <p>Envie áudio, imagens ou links da sua aula e receba um resumo organizado</p>
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Resumo Acad&ecirc;mico</h1>
+        <p>Assistente de estudos com IA</p>
+      </div>
     </div>
     <div class="header-auth">
       {% if usuario %}
         <span class="user-email">{{ usuario.email }}</span>
-        <a class="btn-header sair" href="/sair">Sair</a>
+        <a class="btn-header" href="/sair">Sair</a>
       {% else %}
-        <a class="btn-header entrar" href="/entrar">Entrar / Criar conta</a>
+        <a class="btn-header entrar" href="/entrar">Entrar</a>
       {% endif %}
     </div>
   </div>
@@ -295,43 +363,48 @@
       {% endfor %}
     {% endif %}
   {% endwith %}
-  <h2>✨ Nova aula</h2>
+  <h2>Novo Resumo</h2>
+  <p class="upload-subtitle">Envie materiais de aula e receba um resumo estruturado automaticamente.</p>
   <form id="upload-form" action="/upload" method="POST" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <label class="field" for="titulo">Título da aula</label>
-    <input type="text" id="titulo" name="titulo" placeholder="Ex: Aula de Biologia — Fotossíntese" required>
+    <label class="field" for="titulo">T&iacute;tulo da Aula</label>
+    <input type="text" id="titulo" name="titulo" placeholder="Ex: Biologia Celular &mdash; Fotoss&iacute;ntese" required>
 
-    <label class="field" for="link">Link (YouTube ou página web) — opcional</label>
+    <label class="field" for="link">Link (YouTube ou p&aacute;gina web)</label>
     <div class="link-input-wrap">
-      <span class="link-icon">🔗</span>
+      <span class="link-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      </span>
       <input type="url" id="link" name="link" placeholder="https://youtube.com/watch?v=... ou qualquer URL">
     </div>
 
-    <div class="ou-divider"><span>ou</span></div>
+    <div class="ou-divider"><span>ou envie arquivos</span></div>
 
-    <label class="field">Arquivos (áudio e/ou imagens) — opcional</label>
+    <label class="field">Arquivos (audio e/ou imagens)</label>
     <div class="drop-zone" id="drop-zone">
-      <div class="icon">🎵🖼️</div>
-      <p>Arraste os arquivos aqui ou <span id="browse-btn">clique para selecionar</span></p>
-      <p style="font-size:.78rem;margin-top:.3rem;color:#a78bfa">
-        MP3, WAV, M4A, OGG, MP4 · JPG, PNG, WEBP, GIF
-      </p>
+      <div class="icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <p>Arraste os arquivos aqui ou <span id="browse-btn">selecione do computador</span></p>
+      <p class="formats">MP3, WAV, M4A, OGG, MP4 &middot; JPG, PNG, WEBP, GIF</p>
     </div>
     <input type="file" id="file-input" name="arquivos" multiple
            accept=".mp3,.mp4,.wav,.m4a,.ogg,.webm,.flac,.jpg,.jpeg,.png,.gif,.webp,.bmp">
 
     <div id="file-list"></div>
 
-    <button type="submit" id="submit-btn">🚀 Gerar Resumo</button>
+    <button type="submit" id="submit-btn">Gerar Resumo</button>
     <div id="loading">
       <span class="spinner"></span>
       <span id="loading-msg">Enviando arquivos...</span>
       <div id="progress-wrap" style="display:none; margin-top:.8rem;">
-        <div style="background:#e5e7eb; border-radius:8px; height:8px; overflow:hidden;">
-          <div id="progress-bar" style="background:linear-gradient(135deg,#4f46e5,#7c3aed); height:100%; width:0%; transition:width .3s;"></div>
+        <div style="background:#e2e8f0; border-radius:4px; height:6px; overflow:hidden;">
+          <div id="progress-bar" style="background:#1e40af; height:100%; width:0%; transition:width .3s;"></div>
         </div>
-        <span id="progress-pct" style="font-size:.78rem; color:#6b7280;">0%</span>
+        <span id="progress-pct" style="font-size:.76rem; color:#64748b;">0%</span>
       </div>
     </div>
   </form>
@@ -340,24 +413,26 @@
 {% if usuario %}
   {% if resumos %}
   <section class="resumos-section">
-    <h2>📄 Meus resumos salvos</h2>
+    <h2>Meus Resumos</h2>
     <div class="grid">
       {% for r in resumos %}
       <div class="resumo-card-wrap">
         <a class="resumo-card" href="/resumo/{{ r.slug }}" target="_blank">
           <div class="r-titulo">{{ r.titulo }}</div>
-          <div class="r-data">📅 {{ r.data_hora }}</div>
+          <div class="r-data">{{ r.data_hora }}</div>
           <div class="r-badges">
-            {% if r.tem_audio %}<span class="badge audio">🎵 Áudio</span>{% endif %}
-            {% if r.n_imagens %}<span class="badge imagem">��️ {{ r.n_imagens }} imagem(ns)</span>{% endif %}
-            {% if r.tipo_url == 'youtube' %}<span class="badge youtube">▶️ YouTube</span>{% endif %}
-            {% if r.tipo_url == 'pagina' %}<span class="badge link">🔗 Link</span>{% endif %}
+            {% if r.tem_audio %}<span class="badge audio">Audio</span>{% endif %}
+            {% if r.n_imagens %}<span class="badge imagem">{{ r.n_imagens }} imagem(ns)</span>{% endif %}
+            {% if r.tipo_url == 'youtube' %}<span class="badge youtube">YouTube</span>{% endif %}
+            {% if r.tipo_url == 'pagina' %}<span class="badge link">Link</span>{% endif %}
           </div>
         </a>
         <form class="delete-form" method="POST" action="/resumo/{{ r.slug }}/deletar"
               onsubmit="return confirm('Tem certeza que deseja deletar este resumo?')">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button type="submit" class="btn-delete" title="Deletar resumo">🗑️</button>
+          <button type="submit" class="btn-delete" title="Deletar resumo">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
         </form>
       </div>
       {% endfor %}
@@ -365,16 +440,20 @@
   </section>
   {% else %}
   <div class="resumos-section">
-    <div class="empty">Nenhum resumo salvo ainda. Gere sua primeira aula acima!</div>
+    <div class="empty">Nenhum resumo salvo ainda. Gere seu primeiro resumo acima.</div>
   </div>
   {% endif %}
 {% else %}
 <div class="resumos-section">
   <div class="empty cloud-cta">
-    ☁️ <a href="/entrar">Entre ou crie uma conta grátis</a> para salvar seus resumos na nuvem e acessá-los de qualquer lugar.
+    <a href="/entrar">Entre ou crie uma conta</a> para salvar seus resumos na nuvem.
   </div>
 </div>
 {% endif %}
+
+<footer class="site-footer">
+  Resumo Acad&ecirc;mico &mdash; Assistente de estudos com intelig&ecirc;ncia artificial
+</footer>
 
 <script>
   const dropZone = document.getElementById('drop-zone');
@@ -385,15 +464,13 @@
   const loading = document.getElementById('loading');
   let selectedFiles = [];
 
-  // Clique na drop-zone abre o seletor de arquivo (uma vez só)
   dropZone.addEventListener('click', function(e) {
     e.preventDefault();
     e.stopPropagation();
-    fileInput.value = '';  // reseta pra permitir re-selecionar mesmo arquivo
+    fileInput.value = '';
     fileInput.click();
   });
 
-  // Drag & drop
   dropZone.addEventListener('dragover', function(e) {
     e.preventDefault();
     e.stopPropagation();
@@ -412,7 +489,6 @@
     }
   });
 
-  // Quando seleciona pelo seletor nativo
   fileInput.addEventListener('change', function() {
     if (fileInput.files && fileInput.files.length > 0) {
       addFiles(Array.from(fileInput.files));
@@ -444,7 +520,7 @@
   function fileIcon(name) {
     var ext = name.split('.').pop().toLowerCase();
     var audio = ['mp3','wav','m4a','ogg','webm','flac','mp4'];
-    return audio.indexOf(ext) >= 0 ? '🎵' : '🖼️';
+    return audio.indexOf(ext) >= 0 ? '\u266B' : '\u25A3';
   }
 
   function fmtSize(bytes) {
@@ -462,10 +538,9 @@
         '<span class="icon-f">' + fileIcon(f.name) + '</span>' +
         '<span class="name">' + f.name + '</span>' +
         '<span class="size">' + fmtSize(f.size) + '</span>' +
-        '<span class="remove-btn" onclick="removeFile(' + i + ')" style="cursor:pointer;color:#ef4444;font-weight:700;padding:0 .4rem;" title="Remover">✕</span>';
+        '<span class="remove-btn" onclick="removeFile(' + i + ')" style="cursor:pointer;color:#dc2626;font-weight:600;padding:0 .4rem;font-size:.8rem;" title="Remover">&times;</span>';
       fileList.appendChild(div);
     });
-    // Atualiza estado do botão
     submitBtn.disabled = selectedFiles.length === 0;
   }
 
@@ -501,7 +576,7 @@
         progressBar.style.width = pct + '%';
         progressPct.textContent = pct + '%';
         if (pct >= 100) {
-          loadingMsg.textContent = 'Gerando resumo com IA... pode levar até 1 minuto.';
+          loadingMsg.textContent = 'Gerando resumo com IA... pode levar at\u00e9 1 minuto.';
           progressWrap.style.display = 'none';
         }
       }
@@ -513,14 +588,14 @@
       } else {
         loadingMsg.textContent = 'Erro ao processar. Tente novamente.';
         submitBtn.disabled = false;
-        submitBtn.textContent = '🚀 Gerar Resumo';
+        submitBtn.textContent = 'Gerar Resumo';
       }
     });
 
     xhr.addEventListener('error', function() {
-      loadingMsg.textContent = 'Erro de conexão. Tente novamente.';
+      loadingMsg.textContent = 'Erro de conex\u00e3o. Tente novamente.';
       submitBtn.disabled = false;
-      submitBtn.textContent = '🚀 Gerar Resumo';
+      submitBtn.textContent = 'Gerar Resumo';
     });
 
     xhr.open('POST', '/upload');
