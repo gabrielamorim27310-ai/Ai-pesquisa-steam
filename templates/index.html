@@ -226,6 +226,14 @@
       gap: .5rem;
     }
     .resumo-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,.13); }
+    .resumo-card-wrap { position: relative; }
+    .delete-form { position: absolute; top: .6rem; right: .6rem; }
+    .btn-delete {
+      background: none; border: none; cursor: pointer;
+      font-size: 1.1rem; opacity: .4; transition: opacity .15s;
+      padding: .2rem .4rem; border-radius: 6px;
+    }
+    .btn-delete:hover { opacity: 1; background: #fee2e2; }
     .resumo-card .r-titulo { font-weight: 700; font-size: 1rem; color: #1a202c; }
     .resumo-card .r-data { font-size: .8rem; color: #9ca3af; }
     .resumo-card .r-badges { display: flex; gap: .4rem; flex-wrap: wrap; }
@@ -249,6 +257,15 @@
     .cloud-cta { color: #6b7280; }
     .cloud-cta a { color: #4f46e5; font-weight: 600; text-decoration: none; }
     .cloud-cta a:hover { text-decoration: underline; }
+    .flash-msg {
+      padding: .75rem 1rem;
+      border-radius: 8px;
+      font-size: .88rem;
+      margin-bottom: 1rem;
+    }
+    .flash-aviso { background: #fef3c7; color: #92400e; }
+    .flash-erro { background: #fee2e2; color: #991b1b; }
+    .flash-sucesso { background: #d1fae5; color: #065f46; }
   </style>
 </head>
 <body>
@@ -271,8 +288,16 @@
 </header>
 
 <div class="upload-card">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+      <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
   <h2>✨ Nova aula</h2>
   <form id="upload-form" action="/upload" method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <label class="field" for="titulo">Título da aula</label>
     <input type="text" id="titulo" name="titulo" placeholder="Ex: Aula de Biologia — Fotossíntese" required>
@@ -301,7 +326,13 @@
     <button type="submit" id="submit-btn">🚀 Gerar Resumo</button>
     <div id="loading">
       <span class="spinner"></span>
-      Processando arquivos e gerando resumo com IA... pode levar até 1 minuto.
+      <span id="loading-msg">Enviando arquivos...</span>
+      <div id="progress-wrap" style="display:none; margin-top:.8rem;">
+        <div style="background:#e5e7eb; border-radius:8px; height:8px; overflow:hidden;">
+          <div id="progress-bar" style="background:linear-gradient(135deg,#4f46e5,#7c3aed); height:100%; width:0%; transition:width .3s;"></div>
+        </div>
+        <span id="progress-pct" style="font-size:.78rem; color:#6b7280;">0%</span>
+      </div>
     </div>
   </form>
 </div>
@@ -312,16 +343,23 @@
     <h2>📄 Meus resumos salvos</h2>
     <div class="grid">
       {% for r in resumos %}
-      <a class="resumo-card" href="/resumo/{{ r.slug }}" target="_blank">
-        <div class="r-titulo">{{ r.titulo }}</div>
-        <div class="r-data">📅 {{ r.data_hora }}</div>
-        <div class="r-badges">
-          {% if r.tem_audio %}<span class="badge audio">🎵 Áudio</span>{% endif %}
-          {% if r.n_imagens %}<span class="badge imagem">🖼️ {{ r.n_imagens }} imagem(ns)</span>{% endif %}
-          {% if r.tipo_url == 'youtube' %}<span class="badge youtube">▶️ YouTube</span>{% endif %}
-          {% if r.tipo_url == 'pagina' %}<span class="badge link">🔗 Link</span>{% endif %}
-        </div>
-      </a>
+      <div class="resumo-card-wrap">
+        <a class="resumo-card" href="/resumo/{{ r.slug }}" target="_blank">
+          <div class="r-titulo">{{ r.titulo }}</div>
+          <div class="r-data">📅 {{ r.data_hora }}</div>
+          <div class="r-badges">
+            {% if r.tem_audio %}<span class="badge audio">🎵 Áudio</span>{% endif %}
+            {% if r.n_imagens %}<span class="badge imagem">��️ {{ r.n_imagens }} imagem(ns)</span>{% endif %}
+            {% if r.tipo_url == 'youtube' %}<span class="badge youtube">▶️ YouTube</span>{% endif %}
+            {% if r.tipo_url == 'pagina' %}<span class="badge link">🔗 Link</span>{% endif %}
+          </div>
+        </a>
+        <form class="delete-form" method="POST" action="/resumo/{{ r.slug }}/deletar"
+              onsubmit="return confirm('Tem certeza que deseja deletar este resumo?')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn-delete" title="Deletar resumo">🗑️</button>
+        </form>
+      </div>
       {% endfor %}
     </div>
   </section>
@@ -441,13 +479,52 @@
   updateSubmitState();
 
   form.addEventListener('submit', function(e) {
-    if (selectedFiles.length === 0 && !linkInput.value.trim()) {
-      e.preventDefault();
-      return;
-    }
+    e.preventDefault();
+    if (selectedFiles.length === 0 && !linkInput.value.trim()) return;
+
     submitBtn.disabled = true;
     submitBtn.textContent = 'Processando...';
     loading.style.display = 'block';
+
+    var formData = new FormData(form);
+    var xhr = new XMLHttpRequest();
+
+    var progressWrap = document.getElementById('progress-wrap');
+    var progressBar = document.getElementById('progress-bar');
+    var progressPct = document.getElementById('progress-pct');
+    var loadingMsg = document.getElementById('loading-msg');
+
+    xhr.upload.addEventListener('progress', function(ev) {
+      if (ev.lengthComputable) {
+        progressWrap.style.display = 'block';
+        var pct = Math.round((ev.loaded / ev.total) * 100);
+        progressBar.style.width = pct + '%';
+        progressPct.textContent = pct + '%';
+        if (pct >= 100) {
+          loadingMsg.textContent = 'Gerando resumo com IA... pode levar até 1 minuto.';
+          progressWrap.style.display = 'none';
+        }
+      }
+    });
+
+    xhr.addEventListener('load', function() {
+      if (xhr.status >= 200 && xhr.status < 400) {
+        window.location.href = xhr.responseURL || '/';
+      } else {
+        loadingMsg.textContent = 'Erro ao processar. Tente novamente.';
+        submitBtn.disabled = false;
+        submitBtn.textContent = '🚀 Gerar Resumo';
+      }
+    });
+
+    xhr.addEventListener('error', function() {
+      loadingMsg.textContent = 'Erro de conexão. Tente novamente.';
+      submitBtn.disabled = false;
+      submitBtn.textContent = '🚀 Gerar Resumo';
+    });
+
+    xhr.open('POST', '/upload');
+    xhr.send(formData);
   });
 </script>
 </body>

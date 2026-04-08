@@ -6,14 +6,23 @@ from pathlib import Path
 from datetime import datetime
 from flask import (Flask, render_template, request, redirect, url_for,
                    jsonify, send_from_directory, session, flash)
+from markupsafe import escape as html_escape
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+from flask_wtf.csrf import CSRFProtect
 
 load_dotenv()
 
 app = Flask(__name__)
+csrf = CSRFProtect(app)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-mude-em-producao")
+_secret = os.environ.get("FLASK_SECRET_KEY")
+if not _secret:
+    if os.environ.get("VERCEL") or os.environ.get("FLASK_ENV") == "production":
+        raise RuntimeError("FLASK_SECRET_KEY deve ser definida em produção!")
+    import secrets
+    _secret = secrets.token_hex(32)
+app.secret_key = _secret
 
 # Vercel tem filesystem read-only, usar /tmp
 _TMP = Path("/tmp")
@@ -22,6 +31,25 @@ app.config["RESUMOS_FOLDER"] = _TMP / "resumos"
 
 AUDIO_EXTS = {".mp3", ".mp4", ".wav", ".m4a", ".ogg", ".webm", ".flac"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+MAX_IMAGES = 4
+
+# ── Rate limiting simples por IP ─────────────────────────────────────────────
+from collections import defaultdict
+import time
+
+_rate_limit: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX = 10       # máx requisições
+RATE_LIMIT_WINDOW = 60    # por minuto
+
+
+def _check_rate_limit(ip: str) -> bool:
+    """Retorna True se o IP excedeu o limite."""
+    agora = time.time()
+    _rate_limit[ip] = [t for t in _rate_limit[ip] if agora - t < RATE_LIMIT_WINDOW]
+    if len(_rate_limit[ip]) >= RATE_LIMIT_MAX:
+        return True
+    _rate_limit[ip].append(agora)
+    return False
 
 app.config["RESUMOS_FOLDER"].mkdir(exist_ok=True)
 app.config["UPLOAD_FOLDER"].mkdir(exist_ok=True)
@@ -30,7 +58,11 @@ app.config["UPLOAD_FOLDER"].mkdir(exist_ok=True)
 # ── Supabase ──────────────────────────────────────────────────────────────────
 def _supa():
     from supabase import create_client
-    return create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    if not url or not key:
+        raise RuntimeError("Variáveis SUPABASE_URL e SUPABASE_KEY devem estar configuradas.")
+    return create_client(url, key)
 
 
 def usuario_logado() -> dict | None:
@@ -103,11 +135,24 @@ def carregar_txt_nuvem(slug: str) -> str | None:
         return None
 
 
+# ── Retry helper para chamadas à API ─────────────────────────────────────────
+def _retry(fn, max_tentativas=3, delay=1.0):
+    """Executa fn() com até max_tentativas retentativas em caso de erro."""
+    for tentativa in range(max_tentativas):
+        try:
+            return fn()
+        except Exception:
+            if tentativa == max_tentativas - 1:
+                raise
+            time.sleep(delay * (tentativa + 1))
+
+
 # ── Extração de conteúdo de URL ───────────────────────────────────────────────
 def _youtube_id(url: str):
-    """Extrai o ID do vídeo de uma URL do YouTube."""
+    """Extrai o ID do vídeo de uma URL do YouTube (inclui shorts, nocookie, etc.)."""
     patterns = [
-        r"(?:v=|youtu\.be/|/embed/|/v/)([A-Za-z0-9_-]{11})",
+        r"(?:v=|youtu\.be/|/embed/|/v/|/shorts/|/live/)([A-Za-z0-9_-]{11})",
+        r"youtube-nocookie\.com/embed/([A-Za-z0-9_-]{11})",
         r"^([A-Za-z0-9_-]{11})$",
     ]
     for p in patterns:
@@ -131,7 +176,7 @@ def extrair_conteudo_url(url: str) -> tuple[str, str]:
             from youtube_transcript_api import YouTubeTranscriptApi
             partes = YouTubeTranscriptApi.get_transcript(vid_id, languages=["pt", "pt-BR", "en"])
             texto = " ".join(p["text"] for p in partes)
-            return "youtube", texto[:3000]
+            return "youtube", texto[:8000]
         except Exception as e:
             return "youtube", f"[Não foi possível obter legenda: {e}]"
 
@@ -142,7 +187,7 @@ def extrair_conteudo_url(url: str) -> tuple[str, str]:
         # Remove tags HTML
         texto = re.sub(r"<[^>]+>", " ", resp.text)
         texto = re.sub(r"\s+", " ", texto).strip()
-        return "pagina", texto[:3000]
+        return "pagina", texto[:8000]
     except Exception as e:
         return "pagina", f"[Erro ao acessar o link: {e}]"
 
@@ -151,14 +196,18 @@ def extrair_conteudo_url(url: str) -> tuple[str, str]:
 def transcrever_audio(caminho: str) -> str:
     from groq import Groq
     client = Groq(api_key=os.environ["GROQ_API_KEY"])
-    with open(caminho, "rb") as f:
-        resp = client.audio.transcriptions.create(
-            file=(Path(caminho).name, f),
-            model="whisper-large-v3",
-            response_format="text",
-            language="pt",
-        )
-    return resp if isinstance(resp, str) else resp.text
+
+    def _call():
+        with open(caminho, "rb") as f:
+            resp = client.audio.transcriptions.create(
+                file=(Path(caminho).name, f),
+                model="whisper-large-v3",
+                response_format="text",
+                language="pt",
+            )
+        return resp if isinstance(resp, str) else resp.text
+
+    return _retry(_call)
 
 
 # ── Descrição de imagem via Groq Vision ───────────────────────────────────────
@@ -169,30 +218,34 @@ def descrever_imagem(caminho: str) -> str:
         b64 = base64.b64encode(f.read()).decode()
     ext = Path(caminho).suffix.lower().lstrip(".")
     mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
-    resp = client.chat.completions.create(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:{mime};base64,{b64}"},
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "Você é um assistente escolar. Descreva de forma detalhada "
-                            "o que está nesta imagem de aula: textos, diagramas, fórmulas, "
-                            "quadro-negro, slides ou qualquer conteúdo educacional visível."
-                        ),
-                    },
-                ],
-            }
-        ],
-        max_tokens=500,
-    )
-    return resp.choices[0].message.content.strip()
+
+    def _call():
+        resp = client.chat.completions.create(
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{b64}"},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Você é um assistente escolar. Descreva de forma detalhada "
+                                "o que está nesta imagem de aula: textos, diagramas, fórmulas, "
+                                "quadro-negro, slides ou qualquer conteúdo educacional visível."
+                            ),
+                        },
+                    ],
+                }
+            ],
+            max_tokens=500,
+        )
+        return resp.choices[0].message.content.strip()
+
+    return _retry(_call)
 
 
 # ── Geração do resumo HTML via Groq ───────────────────────────────────────────
@@ -203,45 +256,48 @@ def gerar_resumo(transcricao: str, descricoes_imagens: list[str], titulo: str,
 
     partes = []
     if transcricao:
-        partes.append(f"TRANSCRIÇÃO DO ÁUDIO:\n{transcricao[:1500]}")
+        partes.append(f"TRANSCRIÇÃO DO ÁUDIO:\n{transcricao[:4000]}")
     for i, desc in enumerate(descricoes_imagens, 1):
-        partes.append(f"IMAGEM {i}:\n{desc[:400]}")
+        partes.append(f"IMAGEM {i}:\n{desc[:800]}")
     if conteudo_url:
         label = "TRANSCRIÇÃO DO VÍDEO (YouTube)" if tipo_url == "youtube" else "CONTEÚDO DA PÁGINA"
-        partes.append(f"{label}:\n{conteudo_url[:1500]}")
+        partes.append(f"{label}:\n{conteudo_url[:4000]}")
 
     conteudo = "\n\n".join(partes) if partes else "Nenhum conteúdo enviado."
 
-    resp = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "Você é um assistente escolar especializado em criar resumos de aulas. "
-                    "Organize o conteúdo de forma clara e didática em português brasileiro."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Crie um resumo detalhado e completo da aula '{titulo}' com base neste conteúdo:\n\n"
-                    f"{conteudo}\n\n"
-                    "Estruture o resumo com:\n"
-                    "# Título da aula\n"
-                    "## Introdução\n"
-                    "## Tópicos Principais (desenvolva cada tópico com detalhes e subtópicos)\n"
-                    "## Conceitos-chave (**destaque** os termos importantes em negrito)\n"
-                    "## Exemplos e Aplicações\n"
-                    "## Conclusão e O que aprender\n"
-                    "Use markdown: # para títulos, ## para subtítulos, **negrito** para termos importantes, - para listas.\n"
-                    "Seja detalhado e didático."
-                ),
-            },
-        ],
-        max_tokens=2500,
-    )
-    return resp.choices[0].message.content.strip()
+    def _call():
+        resp = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Você é um assistente escolar especializado em criar resumos de aulas. "
+                        "Organize o conteúdo de forma clara e didática em português brasileiro."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Crie um resumo detalhado e completo da aula '{titulo}' com base neste conteúdo:\n\n"
+                        f"{conteudo}\n\n"
+                        "Estruture o resumo com:\n"
+                        "# Título da aula\n"
+                        "## Introdução\n"
+                        "## Tópicos Principais (desenvolva cada tópico com detalhes e subtópicos)\n"
+                        "## Conceitos-chave (**destaque** os termos importantes em negrito)\n"
+                        "## Exemplos e Aplicações\n"
+                        "## Conclusão e O que aprender\n"
+                        "Use markdown: # para títulos, ## para subtítulos, **negrito** para termos importantes, - para listas.\n"
+                        "Seja detalhado e didático."
+                    ),
+                },
+            ],
+            max_tokens=2500,
+        )
+        return resp.choices[0].message.content.strip()
+
+    return _retry(_call)
 
 
 # ── Converter resumo em HTML ───────────────────────────────────────────────────
@@ -257,6 +313,7 @@ def _md_inline(texto: str) -> str:
 def resumo_para_html(resumo_texto: str, titulo: str, data_hora: str,
                      n_imagens: int, tem_audio: bool, tipo_url: str = "",
                      slug: str = "") -> str:
+    titulo = str(html_escape(titulo))
     linhas = resumo_texto.split("\n")
     blocos = []
     i = 0
@@ -514,6 +571,7 @@ def auth_callback():
 
 
 @app.route("/auth/session", methods=["POST"])
+@csrf.exempt
 def auth_session():
     """Recebe access_token + refresh_token do JS e cria a sessão Flask."""
     data = request.get_json(force=True) or {}
@@ -571,6 +629,8 @@ def entrar():
                 erro = "E-mail já cadastrado. Faça login."
             elif "password" in msg.lower():
                 erro = "A senha deve ter pelo menos 6 caracteres."
+            elif "connection" in msg.lower() or "timeout" in msg.lower():
+                erro = "Serviço indisponível. Tente novamente em alguns instantes."
             else:
                 erro = "Erro ao autenticar. Tente novamente."
     return render_template("auth.html", erro=erro)
@@ -592,6 +652,9 @@ def index():
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    if _check_rate_limit(request.remote_addr or "unknown"):
+        return jsonify({"erro": "Muitas requisições. Aguarde um momento."}), 429
+
     titulo = request.form.get("titulo", "Aula sem título").strip() or "Aula sem título"
     link   = request.form.get("link", "").strip()
     arquivos = request.files.getlist("arquivos")
@@ -600,14 +663,17 @@ def upload():
     if sem_arquivos and not link:
         return jsonify({"erro": "Envie pelo menos um arquivo ou um link."}), 400
 
+    ALLOWED_EXTS = AUDIO_EXTS | IMAGE_EXTS
     audios, imagens = [], []
     for arq in arquivos:
         if not arq.filename:
             continue
         nome = secure_filename(arq.filename)
+        ext = Path(nome).suffix.lower()
+        if ext not in ALLOWED_EXTS:
+            return jsonify({"erro": f"Tipo de arquivo não suportado: {ext}"}), 400
         destino = app.config["UPLOAD_FOLDER"] / nome
         arq.save(str(destino))
-        ext = Path(nome).suffix.lower()
         if ext in AUDIO_EXTS:
             audios.append(str(destino))
         elif ext in IMAGE_EXTS:
@@ -620,8 +686,9 @@ def upload():
         except Exception as e:
             transcricao = f"[Erro na transcrição: {e}]"
 
+    imagens_ignoradas = max(0, len(imagens) - MAX_IMAGES)
     descricoes = []
-    for img in imagens[:4]:
+    for img in imagens[:MAX_IMAGES]:
         try:
             descricoes.append(descrever_imagem(img))
         except Exception as e:
@@ -644,7 +711,10 @@ def upload():
     slug     = agora.strftime("%Y%m%d_%H%M%S")
     data_hora = agora.strftime("%d/%m/%Y às %H:%M")
     meta     = {"titulo": titulo, "slug": slug, "data_hora": data_hora,
-                "n_imagens": len(imagens), "tem_audio": bool(audios), "tipo_url": tipo_url}
+                "n_imagens": len(imagens), "tem_audio": bool(audios), "tipo_url": tipo_url,
+                "imagens_ignoradas": imagens_ignoradas}
+    if imagens_ignoradas:
+        flash(f"Apenas {MAX_IMAGES} imagens foram processadas. {imagens_ignoradas} imagem(ns) foram ignoradas.", "aviso")
 
     html_content = resumo_para_html(resumo_texto, titulo, data_hora,
                                     len(imagens), bool(audios), tipo_url, slug)
@@ -655,6 +725,13 @@ def upload():
     (pasta / f"resumo_{slug}.txt").write_text(resumo_texto, encoding="utf-8")
     (pasta / f"resumo_{slug}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     salvar_resumo_nuvem(slug, titulo, data_hora, html_content, resumo_texto, meta)
+
+    # Limpa arquivos de upload temporários
+    for caminho in audios + imagens:
+        try:
+            os.remove(caminho)
+        except OSError:
+            pass
 
     return redirect(url_for("ver_resumo", slug=slug))
 
@@ -670,6 +747,31 @@ def ver_resumo(slug: str):
     if html:
         return html
     return "Resumo não encontrado.", 404
+
+
+@app.route("/resumo/<slug>/deletar", methods=["POST"])
+def deletar_resumo(slug: str):
+    uid = (usuario_logado() or {}).get("id")
+    if not uid:
+        return jsonify({"erro": "Não autorizado."}), 401
+    try:
+        sb = _supa()
+        # Remove do Storage
+        prefix = f"{uid}/{slug}"
+        sb.storage.from_("resumos").remove([f"{prefix}.html", f"{prefix}.txt"])
+        # Remove do banco
+        sb.table("resumos").delete().eq("user_id", uid).eq("slug", slug).execute()
+    except Exception as e:
+        app.logger.warning(f"Erro ao deletar resumo: {e}")
+    # Remove arquivos locais
+    pasta = app.config["RESUMOS_FOLDER"]
+    for ext in (".html", ".txt", ".json"):
+        try:
+            (pasta / f"resumo_{slug}{ext}").unlink(missing_ok=True)
+        except OSError:
+            pass
+    flash("Resumo deletado com sucesso.", "sucesso")
+    return redirect(url_for("index"))
 
 
 @app.route("/resumo/<slug>/docx")

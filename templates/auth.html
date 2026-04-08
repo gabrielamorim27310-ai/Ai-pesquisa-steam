@@ -185,6 +185,7 @@
     <!-- Login -->
     <form class="form {% if not request.args.get('modo') or request.args.get('modo') == 'login' %}active{% endif %}"
           id="form-login" method="POST" action="/entrar">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="acao" value="login">
       <div>
         <label for="email-l">E-mail</label>
@@ -201,6 +202,7 @@
     <!-- Cadastro -->
     <form class="form {% if request.args.get('modo') == 'cadastro' %}active{% endif %}"
           id="form-cadastro" method="POST" action="/entrar">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="acao" value="cadastro">
       <div>
         <label for="email-c">E-mail</label>
